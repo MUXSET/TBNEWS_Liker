@@ -1,9 +1,8 @@
-
-# MUXSET 全自动点赞工具 v0.9.1
+# E+新闻全自动点赞工具 v0.9.1
 
 ![版本](https://img.shields.io/badge/version-0.9.1-blue.svg)![语言](https://img.shields.io/badge/language-Python-green.svg)![作者](https://img.shields.io/badge/author-MUXSET-orange.svg)![协议](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
-一个为特定平台（TBEA E-Jia）设计的、稳定可靠的自动化文章扫描和点赞工具。它被精心设计为无人值守模式，能够7x24小时自动执行任务，并智能处理Token过期问题。
+**E+新闻全自动点赞工具** 是一款由 MUXSET 开发，专为 TBEA E+ 新闻平台设计的稳定、可靠的自动化文章扫描与点赞工具。它被精心设计为无人值守模式，能够7x24小时自动执行任务，并智能处理Token过期问题。
 
 ## ✨ 核心功能
 
@@ -70,7 +69,7 @@ v0.9.x系列遵循“高内聚、低耦合”的设计原则，将项目拆分�
     设置凭据后，您将看到主菜单：
     ```
     ============================================================
-     MUXSET 全自动点赞工具 v0.9.1
+     E+新闻全自动点赞工具 v0.9.1
     ============================================================
       👤 当前账号: your_username
       🔑 Token状态: ✅ 有效
