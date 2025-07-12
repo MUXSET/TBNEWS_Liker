@@ -18,7 +18,7 @@ def clear_screen():
 def display_header():
     """显示程序的主标题。"""
     print("=" * 60)
-    print(f" MUXSET 全自动点赞工具 v0.9".center(54))
+    print(f" E+新闻 全自动点赞工具 v0.9.1".center(54))
     print("=" * 60)
 
 def display_dashboard(username: str, token_status: str):
