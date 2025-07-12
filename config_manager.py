@@ -1,6 +1,6 @@
 # =================================================================
 #  config_manager.py
-#  Version: 0.9
+#  Version: 0.9.1
 #  Author: MUXSET
 #  Description: 配置管理中心。
 #               负责所有与 config.json 文件的读取、写入和更新操作，
