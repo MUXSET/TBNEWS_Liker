@@ -58,7 +58,7 @@ v0.9.x系列遵循“高内聚、低耦合”的设计原则，将项目拆分�
 
 ## 🚀 如何使用
 
-请参考最新的 [Release 页面](https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME/releases) 下载 `.exe` 可执行程序，或按照上述步骤从源码运行。
+请参考最新的 [Release 页面](https://github.com/MUXSET/TBNEWS_Liker/releases) 下载 `.exe` 可执行程序，或按照上述步骤从源码运行。
 
 ## 🔍 问题排查
 
