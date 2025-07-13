@@ -40,8 +40,8 @@ v0.9.x系列遵循“高内聚、低耦合”的设计原则，将项目拆分�
 
 1.  **克隆仓库**
     ```bash
-    git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME.git
-    cd YOUR_REPOSITORY_NAME
+    git clone https://github.com/MUXSET/TBNEWS_Liker.git
+    cd TBNEWS_Liker
     ```
 
 2.  **创建 `requirements.txt` 文件**
