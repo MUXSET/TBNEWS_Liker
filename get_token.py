@@ -1,9 +1,9 @@
 # =================================================================
 #  get_token.py
-#  Version: 1.0.0
+#  Version: 1.0.0 (Final Build)
 #  Author: MUXSET
 #  Description: Token获取模块 (完全异步版)。
-#               采用内部路径逻辑，确保在打包环境中能精确定位浏览器。
+#               - 采用定制化路径逻辑，完美支持安装包和便携版打包。
 # =================================================================
 
 import os
@@ -17,7 +17,7 @@ LOGIN_URL = "https://ejia.tbea.com/"
 async def get_new_token(username: str, password: str) -> Optional[str]:
     """
     使用Playwright执行完整的无头浏览器Token捕获流程 (异步版本)。
-    此版本兼容直接运行和文件夹模式打包环境。
+    此版本兼容直接运行、便携版和安装包环境。
     """
     print("  [Token] 正在启动Playwright无头浏览器...")
     if not username or not password:
@@ -26,15 +26,28 @@ async def get_new_token(username: str, password: str) -> Optional[str]:
 
     try:
         async with async_playwright() as p:
+
+            # ========================[ 核心路径逻辑：适配打包环境 ]========================
             executable_path = None
-            # --- 核心路径逻辑：在打包环境中，自动计算浏览器可执行文件路径 ---
+
+            # 当程序被打包后 (无论是文件夹还是安装包), sys.frozen 会为 True
             if getattr(sys, 'frozen', False):
+                # sys.executable 是主程序 .exe 的绝对路径
+                # os.path.dirname 获取 .exe 所在的目录
                 base_path = os.path.dirname(sys.executable)
-                # 注意：这里的路径分隔符和文件夹名称需要与您打包时的一致
-                executable_path = os.path.join(base_path, 'ms-playwright', 'chromium-1076', 'chrome-win', 'chrome.exe')
+
+                # 构建指向简化后目录结构的浏览器路径
+                # 这是根据您成功的 v0.9.6 版本确定的正确路径结构
+                executable_path = os.path.join(base_path, 'ms-playwright', 'chrome.exe')
+
+                print(f"  [Token] 运行于打包环境，尝试浏览器路径: {executable_path}")
+
+                # 增加一层健壮性检查，如果文件不存在则直接报错退出
                 if not os.path.exists(executable_path):
                     print(f"  [Token] ❌ 严重错误: 在打包目录中未找到浏览器: {executable_path}")
+                    print("  [Token] ℹ️  请确保 'ms-playwright' 文件夹及其中的 'chrome.exe' 与主程序在同一目录下。")
                     return None
+            # ========================[ 核心路径逻辑：结束 ]==========================
 
             browser = await p.chromium.launch(
                 headless=True,
@@ -68,6 +81,7 @@ async def get_new_token(username: str, password: str) -> Optional[str]:
             await news_page.wait_for_load_state('networkidle', timeout=30000)
 
             all_cookies = await context.cookies()
+            # 使用更简洁的方式查找Token
             token_value = next((c['value'] for c in all_cookies if c['name'] == 'tbea_art_token'), None)
 
             await browser.close()
@@ -87,3 +101,4 @@ async def get_new_token(username: str, password: str) -> Optional[str]:
         print(f"  [Token] ❌ 自动化操作发生未知错误: {e}")
         print("  [Token] ℹ️  可能原因: 凭据错误、网站结构变更或网络问题。")
         return None
+
