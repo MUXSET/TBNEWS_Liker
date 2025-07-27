@@ -1,98 +1,89 @@
 # =================================================================
 #  get_token.py
-#  Version: 0.9.1
+#  Version: 1.0.0
 #  Author: MUXSET
-#  Description: Token获取模块 (重构版)。
-#               通过函数接收凭据，执行自动化流程，并返回获取到的Token。
-#               不再直接读写配置文件，实现与配置模块的解耦。
+#  Description: Token获取模块 (完全异步版)。
+#               采用内部路径逻辑，确保在打包环境中能精确定位浏览器。
 # =================================================================
 
 import os
-import time
+import sys
 from typing import Optional
-from selenium import webdriver
-from selenium.webdriver.edge.service import Service
-from selenium.webdriver.edge.options import Options as EdgeOptions
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.microsoft import EdgeChromiumDriverManager
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 LOGIN_URL = "https://ejia.tbea.com/"
 
 
-def get_new_token(username: str, password: str) -> Optional[str]:
+async def get_new_token(username: str, password: str) -> Optional[str]:
     """
-    执行完整的无头浏览器Token捕获流程。
-    参数:
-        username (str): 登录账号。
-        password (str): 登录密码。
-    返回:
-        str: 成功时返回获取到的Token字符串。
-        None: 失败时返回None。
+    使用Playwright执行完整的无头浏览器Token捕获流程 (异步版本)。
+    此版本兼容直接运行和文件夹模式打包环境。
     """
-    print("  [Token] 正在启动无头浏览器...")
+    print("  [Token] 正在启动Playwright无头浏览器...")
     if not username or not password:
         print("  [Token] ❌ 错误: 未提供有效的凭据。")
         return None
 
-    edge_options = EdgeOptions()
-    edge_options.add_argument("--headless")
-    edge_options.add_argument("--disable-gpu")
-    edge_options.add_argument("--window-size=1920,1080")
-    edge_options.add_argument("--log-level=3")
-    edge_options.add_experimental_option('excludeSwitches', ['enable-logging'])
-
-    driver = None
     try:
-        # 将webdriver日志输出重定向到os.devnull以保持控制台清洁
-        service = Service(EdgeChromiumDriverManager().install(), log_output=os.devnull)
-        driver = webdriver.Edge(service=service, options=edge_options)
+        async with async_playwright() as p:
+            executable_path = None
+            # --- 核心路径逻辑：在打包环境中，自动计算浏览器可执行文件路径 ---
+            if getattr(sys, 'frozen', False):
+                base_path = os.path.dirname(sys.executable)
+                # 注意：这里的路径分隔符和文件夹名称需要与您打包时的一致
+                executable_path = os.path.join(base_path, 'ms-playwright', 'chromium-1076', 'chrome-win', 'chrome.exe')
+                if not os.path.exists(executable_path):
+                    print(f"  [Token] ❌ 严重错误: 在打包目录中未找到浏览器: {executable_path}")
+                    return None
 
-        driver.get(LOGIN_URL)
-        wait = WebDriverWait(driver, 40)
-        print("  [Token] 页面加载中...")
+            browser = await p.chromium.launch(
+                headless=True,
+                executable_path=executable_path  # 在打包时使用计算出的路径，开发时为None则使用默认
+            )
 
-        # --- 登录流程 ---
-        wait.until(EC.element_to_be_clickable((By.CLASS_NAME, "user-name"))).click()
-        wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys(username)
-        wait.until(EC.visibility_of_element_located((By.ID, "password"))).send_keys(password)
-        wait.until(EC.element_to_be_clickable((By.ID, "log-btn"))).click()
-        print("  [Token] 登录信息已提交，等待跳转...")
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+            )
+            page = await context.new_page()
 
-        # --- 进入iframe并点击新闻 ---
-        main_window_handle = driver.current_window_handle
-        wait.until(EC.frame_to_be_available_and_switch_to_it((By.TAG_NAME, "iframe")))
-        time.sleep(3)  # 等待iframe内JS加载
+            print("  [Token] 页面加载中...")
+            await page.goto(LOGIN_URL, timeout=60000)
+            await page.locator(".user-name").click()
+            await page.locator("#email").fill(username)
+            await page.locator("#password").fill(password)
+            await page.locator("#log-btn").click()
+            print("  [Token] 登录信息已提交，等待跳转...")
 
-        more_button_xpath = "//span[@title='新闻资讯']/ancestor::div[contains(@class, 'card-component')]//div[contains(@class, 'card-header-button')]"
-        more_button = wait.until(EC.element_to_be_clickable((By.XPATH, more_button_xpath)))
-        ActionChains(driver).move_to_element(more_button).click().perform()
+            news_frame = page.frame_locator("iframe")
+            news_card_locator = news_frame.locator("div.card-component:has(span[title='新闻资讯'])")
 
-        # --- 切换窗口并获取Token ---
-        driver.switch_to.default_content()
-        wait.until(EC.number_of_windows_to_be(2))
-        news_window_handle = [h for h in driver.window_handles if h != main_window_handle][0]
-        driver.switch_to.window(news_window_handle)
+            async with context.expect_page() as new_page_info:
+                await news_card_locator.get_by_text("更多").click()
 
-        first_article_xpath = "(//li[@class='article-item'])[1]"
-        wait.until(EC.element_to_be_clickable((By.XPATH, first_article_xpath))).click()
+            news_page = await new_page_info.value
+            await news_page.wait_for_load_state()
 
-        print("  [Token] 正在捕获关键Cookie...")
-        wait.until(lambda d: d.get_cookie('tbea_art_token'))
-        token_value = driver.get_cookie('tbea_art_token')['value']
+            await news_page.locator("(//li[@class='article-item'])[1]").click()
+            print("  [Token] 正在捕获关键Cookie...")
+            await news_page.wait_for_load_state('networkidle', timeout=30000)
 
-        print(f"  [Token] ✅ 成功！已在浏览器中捕获Token。")
-        return token_value
+            all_cookies = await context.cookies()
+            token_value = next((c['value'] for c in all_cookies if c['name'] == 'tbea_art_token'), None)
 
-    except Exception as e:
-        print(f"  [Token] ❌ 自动化操作失败: {e}")
-        print("  [Token] ℹ️  可能原因: 凭据错误、网站结构变更或网络超时。")
-        if driver:
-            driver.save_screenshot("token_error.png")
-            print("  [Token] ℹ️  已保存截图 'token_error.png' 供调试。")
+            await browser.close()
+
+            if token_value:
+                print("  [Token] ✅ 成功！已在浏览器中捕获Token。")
+                return token_value
+            else:
+                print("  [Token] ❌ 操作完成，但未能在Cookie中找到'tbea_art_token'。")
+                return None
+
+    except PlaywrightTimeoutError:
+        print("  [Token] ❌ 自动化操作失败: 页面元素加载超时。")
+        print("  [Token] ℹ️  可能原因: 网站结构变更或网络极差。")
         return None
-    finally:
-        if driver:
-            driver.quit()
+    except Exception as e:
+        print(f"  [Token] ❌ 自动化操作发生未知错误: {e}")
+        print("  [Token] ℹ️  可能原因: 凭据错误、网站结构变更或网络问题。")
+        return None
