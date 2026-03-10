@@ -3,22 +3,23 @@
 #  Version: 1.0.0
 #  Author: MUXSET (Refactored by Senior Software Engineer)
 #  Description: 通用后台任务调度器。
-#               采用通用工作线程模型，可动态添加任意数量的定时任务，
-#               并负责所有线程的生命周期管理。
+#               采用通用工作线程模型，可动态添加任意数量的定时任务。
+#               (已重构): 使用 threading.Event 实现可瞬时打断的优雅休眠，
+#               取代死板的 time.sleep()。
 # =================================================================
 
 import threading
 import time
 from typing import Callable, List, Dict
-
+from logger import logger
 
 class TaskManager:
-    """管理后台工作线程，处理定时执行和优雅停止。"""
+    """管理后台工作线程，处理定时执行和优雅瞬时停止。"""
 
     def __init__(self):
         self.tasks: List[Dict] = []
         self.task_lock = threading.RLock()
-        self.is_running = False
+        self.stop_event = threading.Event()
         self.threads: List[threading.Thread] = []
 
     def add_task(self, func: Callable, interval_hr: float, name: str, initial_delay_hr: float = 0):
@@ -30,37 +31,50 @@ class TaskManager:
     def _task_worker(self, task: Dict):
         name, interval, initial_delay = task['name'], task['interval_sec'], task['initial_delay_sec']
 
-        print(f"  [调度器] '{name}' 任务线程已准备。")
+        logger.info(f"⚙️  [调度器] '{name}' 任务线程已准备。")
         if initial_delay > 0:
             first_run_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() + initial_delay))
-            print(f"  [调度器] '{name}' 任务首次运行计划于: {first_run_time}")
-            time.sleep(initial_delay)
+            logger.info(f"⏳ [调度器] '{name}' 任务首次运行计划于: {first_run_time}")
+            # 使用 wait 代替 sleep，可以在等待期间瞬间响应 stop 信号
+            if self.stop_event.wait(timeout=initial_delay):
+                return
 
-        while self.is_running:
+        while not self.stop_event.is_set():
             with self.task_lock:
-                print(f"\n{'=' * 25}\n▶️  [{time.strftime('%H:%M:%S')}] [任务] 开始执行 '{name}'...")
+                logger.info(f"▶️  [任务] 开始执行 '{name}'...")
                 try:
                     task['func']()
-                    print(f"🏁 [{time.strftime('%H:%M:%S')}] [任务] '{name}' 执行完成。")
+                    logger.info(f"🏁 [任务] '{name}' 执行完成。")
                 except Exception as e:
-                    print(f"❌ [{time.strftime('%H:%M:%S')}] [任务] '{name}' 执行时发生严重错误: {e}")
+                    logger.error(f"❌ [任务] '{name}' 执行时发生严重错误: {e}")
 
-            if not self.is_running: break
+            if self.stop_event.is_set():
+                break
 
             next_run_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(time.time() + interval))
-            print(f"😴 [{time.strftime('%H:%M:%S')}] [调度器] '{name}' 任务休眠，下次运行: {next_run_time}")
-            print(f"{'=' * 25}")
-            time.sleep(interval)
+            logger.info(f"😴 [调度器] '{name}' 任务休眠，下次运行: {next_run_time}")
+            
+            # 可被瞬间打断的优雅休眠
+            if self.stop_event.wait(timeout=interval):
+                break
+                
+        logger.info(f"⏹️  [调度器] '{name}' 任务线程已安全退出。")
 
     def start(self):
         if not self.tasks: return
-        self.is_running = True
+        self.stop_event.clear()
+        self.threads = []
         for task_info in self.tasks:
             thread = threading.Thread(target=self._task_worker, args=(task_info,), daemon=True)
             self.threads.append(thread)
             thread.start()
-        print("  [调度器] 所有任务线程已启动。")
+        logger.info("🚀 [调度器] 所有任务线程已启动。")
 
     def stop(self):
-        print("\n⏹️  [调度器] 正在发送停止信号给所有任务...")
-        self.is_running = False
+        logger.info("⏹️  [调度器] 正在发送停止信号给所有任务...")
+        self.stop_event.set()
+
+    @property
+    def is_running(self) -> bool:
+        """检查是否有任何任务线程仍在运行"""
+        return any(t.is_alive() for t in self.threads)
