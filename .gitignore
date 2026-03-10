@@ -8,6 +8,10 @@ venv/
 dist/
 build/
 
+# Release artifacts
+TBNEWS_Liker-*.zip
+*.dmg
+
 # Runtime data
 config.json
 liked_articles.json

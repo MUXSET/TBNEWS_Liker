@@ -8,11 +8,44 @@
 
 import os
 import sys
+import glob
 from typing import Optional
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 from logger import logger
 
 LOGIN_URL = "https://ejia.tbea.com/"
+
+
+def _find_bundled_browser() -> Optional[str]:
+    """在打包环境中自动查找 ms-playwright/ 下的 Chromium 可执行文件。"""
+    import app_context
+    browser_root = app_context.BROWSER_DATA_PATH
+
+    if not os.path.isdir(browser_root):
+        logger.error(f"❌ [Token] 未找到浏览器目录: {browser_root}")
+        return None
+
+    if sys.platform == 'darwin':
+        # macOS: ms-playwright/chromium-*/chrome-mac-*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
+        pattern = os.path.join(browser_root, 'chromium-*', 'chrome-mac-*',
+                               'Google Chrome for Testing.app', 'Contents', 'MacOS',
+                               'Google Chrome for Testing')
+        matches = glob.glob(pattern)
+    elif sys.platform == 'win32':
+        # Windows: ms-playwright/chromium-*/chrome-win*/chrome.exe
+        pattern = os.path.join(browser_root, 'chromium-*', 'chrome-win*', 'chrome.exe')
+        matches = glob.glob(pattern)
+    else:
+        # Linux: ms-playwright/chromium-*/chrome-linux*/chrome
+        pattern = os.path.join(browser_root, 'chromium-*', 'chrome-linux*', 'chrome')
+        matches = glob.glob(pattern)
+
+    if matches:
+        logger.info(f"📦 [Token] 发现打包浏览器: {matches[0]}")
+        return matches[0]
+
+    logger.error(f"❌ [Token] 在 {browser_root} 中未找到 Chromium 可执行文件")
+    return None
 
 
 async def get_new_token(username: str, password: str) -> Optional[dict]:
@@ -32,22 +65,9 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
             # ========================[ 核心路径逻辑：适配打包环境 ]========================
             executable_path = None
 
-            # 当程序被打包后 (无论是文件夹还是安装包), sys.frozen 会为 True
             if getattr(sys, 'frozen', False):
-                # sys.executable 是主程序 .exe 的绝对路径
-                # os.path.dirname 获取 .exe 所在的目录
-                base_path = os.path.dirname(sys.executable)
-
-                # 构建指向简化后目录结构的浏览器路径
-                # 这是根据您成功的 v0.9.6 版本确定的正确路径结构
-                executable_path = os.path.join(base_path, 'ms-playwright', 'chrome.exe')
-
-                logger.info(f"📦 [Token] 运行于打包环境，尝试浏览器路径: {executable_path}")
-
-                # 增加一层健壮性检查，如果文件不存在则直接报错退出
-                if not os.path.exists(executable_path):
-                    logger.error(f"❌ [Token] 严重错误: 在打包目录中未找到浏览器: {executable_path}")
-                    logger.info("ℹ️ [Token] 请确保 'ms-playwright' 文件夹及其中的 'chrome.exe' 与主程序在同一目录下。")
+                executable_path = _find_bundled_browser()
+                if not executable_path:
                     return None
             # ========================[ 核心路径逻辑：结束 ]==========================
 

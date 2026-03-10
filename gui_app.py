@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 import config_manager
 from logger import logger, log_queue, LOG_FILE
+from version import __version__, __app_name__
 import task_manager
 import get_token
 import channel_sweep
@@ -47,7 +48,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("E+ 新闻点赞工具 v2.0.0")
+        self.title(f"{__app_name__} v{__version__}")
         self.geometry("1050x720")
         self.minsize(850, 580)
 
@@ -243,7 +244,7 @@ class App(ctk.CTk):
         self._refresh_stats()
 
         logger.info("=========================================")
-        logger.info("  ⚡ E+ 自动点赞工具 v2.0.0 已启动")
+        logger.info(f"  ⚡ E+ 自动点赞工具 v{__version__} 已启动")
         logger.info(f"  📦 本地缓存: {liked_cache.get_cache_size()} 篇已赞记录")
         logger.info("=========================================")
 

@@ -1,0 +1,120 @@
+# =================================================================
+#  GitHub Actions: 自动打包发布
+#  触发: push tag v* (如 v2.0.0)
+#  产物: macOS 和 Windows 的完整即开即用 zip 包
+# =================================================================
+
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+            artifact_name: TBNEWS_Liker-macos
+          - os: windows-latest
+            platform: windows
+            artifact_name: TBNEWS_Liker-windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Install Playwright Chromium
+        run: playwright install chromium
+
+      - name: Build with PyInstaller
+        run: pyinstaller TBNEWS_Liker.spec
+
+      # --- macOS: 组装 zip ---
+      - name: Package (macOS)
+        if: matrix.platform == 'macos'
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          RELEASE_DIR="TBNEWS_Liker-${TAG}-macos"
+          mkdir -p "$RELEASE_DIR"
+
+          # 复制 .app bundle
+          cp -R "dist/E+新闻点赞工具.app" "$RELEASE_DIR/"
+
+          # 复制 Playwright 浏览器
+          BROWSER_SRC="$HOME/Library/Caches/ms-playwright"
+          mkdir -p "$RELEASE_DIR/ms-playwright"
+          cp -R "$BROWSER_SRC"/chromium-* "$RELEASE_DIR/ms-playwright/"
+          cp -R "$BROWSER_SRC"/chromium_headless_shell-* "$RELEASE_DIR/ms-playwright/" 2>/dev/null || true
+          cp -R "$BROWSER_SRC"/ffmpeg-* "$RELEASE_DIR/ms-playwright/" 2>/dev/null || true
+
+          # 打 zip
+          zip -r -y "$RELEASE_DIR.zip" "$RELEASE_DIR"
+          echo "ASSET_PATH=${RELEASE_DIR}.zip" >> $GITHUB_ENV
+          echo "ASSET_NAME=${RELEASE_DIR}.zip" >> $GITHUB_ENV
+
+      # --- Windows: 组装 zip ---
+      - name: Package (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF -replace 'refs/tags/', ''
+          $releaseDir = "TBNEWS_Liker-${tag}-windows"
+          New-Item -ItemType Directory -Path $releaseDir -Force
+
+          # 复制 PyInstaller 产物
+          Copy-Item -Recurse "dist\E+新闻点赞工具\*" "$releaseDir\"
+
+          # 复制 Playwright 浏览器
+          $browserSrc = "$env:LOCALAPPDATA\ms-playwright"
+          $browserDest = "$releaseDir\ms-playwright"
+          New-Item -ItemType Directory -Path $browserDest -Force
+          Get-ChildItem "$browserSrc" -Directory | Where-Object { $_.Name -match '^(chromium|ffmpeg)' } | ForEach-Object {
+              Copy-Item -Recurse $_.FullName "$browserDest\"
+          }
+
+          # 打 zip
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "$releaseDir.zip"
+          echo "ASSET_PATH=$releaseDir.zip" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+          echo "ASSET_NAME=$releaseDir.zip" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ env.ASSET_PATH }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/**/*.zip
