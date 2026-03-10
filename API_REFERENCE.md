@@ -278,3 +278,68 @@ XT-{channelId}
 2.  **`pid` ≠ 推送频道**：文章的 `pid` 字段代表制作方，不代表是哪个频道推送的。只有 `pubacc_v2` 接口能确定频道归属。
 3.  **双 Session 架构**：`ejia.tbea.com`（公众号文章）和 `tbeanews.tbea.com`（新闻）使用不同的认证体系，必须用两个独立的 `requests.Session` 分别请求，否则 Cookies 会互相干扰。
 4.  **IM 页面无法直接访问**：Headless 浏览器访问 `/im/xiaoxi/` 会被重定向到 `/yzj-layout/home/`，IM 模块是嵌入在主页里的 SPA 组件。
+
+---
+
+## 附录：旧版 IM 消息 API（留存归档）
+
+> [!WARNING]
+> 以下内容为 v1 版本使用的旧版底层即时通讯 (IM) 接口，**现已被官方封杀停用 (返回 401)**。为保留演进记录特此归档。
+>
+> 且 Cookie 中的 `cu` 字段（如 `177...`）**不等于** IM `groupId` 中的 userId（如 `64ad...`）！构建旧版 `groupId` 时极其复杂，必须使用复杂的 DOM 推演专门提取 IM 专用 userId 并组合。这也是抛弃它的原因之一。
+
+### A.1 获取频道消息列表
+
+```http
+POST https://ejia.tbea.com/im/rest/message/listMessage
+Content-Type: application/x-www-form-urlencoded; charset=UTF-8
+```
+
+| 参数 | 值 | 说明 |
+|-----|-----|------|
+| `groupId` | `XT-{userId}-{channelId}` | 奇葩复杂的组合拼接，已弃用 |
+| `userId` | 留空 | 不需要填 |
+| `type` | `new` / `old` | 首页用 `new`，翻页用 `old` |
+| `count` | `10` ~ `20` | 每页条数 |
+| `msgId` | 留空 / 上页末尾 msgId | 分页游标 |
+
+**响应示例：**
+```json
+{
+  "data": {
+    "list": [
+      {
+        "msgType": 6,
+        "sendTime": "2026-03-06 18:30:00",
+        "msgId": "abc123...",
+        "param": {
+          "list": [
+            {
+              "title": "护航绿电！...",
+              "url": "https://...?id=11995"
+            }
+          ]
+        }
+      }
+    ],
+    "more": true
+  },
+  "success": true
+}
+```
+
+| 字段 | 说明 |
+|-----|------|
+| `msgType` | `6` = 图文新闻推送 |
+| `sendTime` | 推送时间，格式 `YYYY-MM-DD HH:MM:SS` |
+| `param.list[]` | 多图文模式，每条含 `title` 和 `url`（内含文章 ID） |
+| `param.url` | 单图文模式的文章链接 |
+| `more` | `true` = 还有更多历史消息可翻页 |
+
+### A.2 分页逻辑
+
+```
+第 1 页: type=new, msgId=（空）
+第 N 页: type=old, msgId=（上一页最后一条的 msgId）
+终止条件: more=false 或 sendTime 早于目标月份
+```
