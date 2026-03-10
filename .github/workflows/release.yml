@@ -116,35 +116,39 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "E+新闻点赞工具 ${{ github.ref_name }}"
+          name: "E+ 新闻点赞工具 ${{ github.ref_name }}"
           body: |
             ## 🚀 E+ 新闻全自动点赞工具 ${{ github.ref_name }}
 
             > **即开即用！** 下载对应平台的 zip → 解压 → 双击运行，无需安装 Python 或任何依赖。
 
-            ### ✨ 新功能
-            - 🖥️ 全新 GUI 仪表板（CustomTkinter 现代界面）
-            - 📅 按日期范围扫描（今天 / 昨天 / 本周 / 本月 / 上月 / 自定义）
-            - 📱 手机远程控制 Web 面板（`http://局域网IP:5050`）
-            - 📦 本地智能点赞缓存，自动跳过已赞文章
-            - 👥 多账号管理，一键切换
-            - 🔑 Token 实时 API 校验（每 5 分钟）
-            - 📊 月报 CSV 一键导出
+            ### ✨ 新功能亮点
+
+            | 功能 | 说明 |
+            |------|------|
+            | 🖥️ **全新 GUI 仪表板** | 现代化桌面界面（CustomTkinter），实时统计卡片 |
+            | 📅 **按日期范围扫描** | 今天 / 昨天 / 本周 / 本月 / 上月 / 自定义，精确补赞 |
+            | 📱 **手机远程控制** | Web 面板 `http://局域网IP:5050`，手机浏览器即可操作 |
+            | 📦 **智能缓存** | 自动跳过已赞文章，减少 API 请求 |
+            | 👥 **多账号管理** | 一键切换，独立统计 |
+            | 🔑 **Token 实时校验** | 每 5 分钟 API 验证，过期自动刷新 |
+            | 📊 **月报导出** | 一键导出 CSV 点赞报告 |
 
             ### 📥 下载说明
 
-            | 平台 | 文件 | 说明 |
-            |------|------|------|
-            | macOS | `TBNEWS_Liker-${{ github.ref_name }}-macos.zip` | 解压后双击 `.app` 即可 |
-            | Windows | `TBNEWS_Liker-${{ github.ref_name }}-windows.zip` | 解压后双击 `E+新闻点赞工具.exe` |
+            | 文件 | 适用平台 |
+            |------|----------|
+            | `TBNEWS_Liker-${{ github.ref_name }}-macos.zip` | macOS (Apple Silicon / Intel) |
+            | `TBNEWS_Liker-${{ github.ref_name }}-windows.zip` | Windows 10/11 |
 
-            ### ⚠️ 首次使用
-            1. 解压 zip 到任意目录
-            2. 双击运行程序
-            3. 点击 **⚙️ 设置**，输入工号和密码
-            4. 选择扫描范围，点击 **▶ 开始扫描**
+            ### 🏁 快速开始
 
-            ---
-            *完整文档请参阅 [README](https://github.com/MUXSET/TBNEWS_Liker/blob/master/README.md)*
+            1. 下载对应平台的 zip 文件
+            2. 解压到任意位置
+            3. **macOS**: 双击 `E+新闻点赞工具.app`
+            4. **Windows**: 双击 `E+新闻点赞工具.exe`
+            5. 首次使用点击 ⚙️ 设置，输入工号和密码即可
+
+            > ⚠️ macOS 首次打开可能提示"未知开发者"，请前往 **系统设置 → 隐私与安全性 → 仍要打开**。
           generate_release_notes: true
           files: artifacts/**/*.zip
