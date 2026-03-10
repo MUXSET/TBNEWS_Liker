@@ -116,5 +116,35 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          name: "E+新闻点赞工具 ${{ github.ref_name }}"
+          body: |
+            ## 🚀 E+ 新闻全自动点赞工具 ${{ github.ref_name }}
+
+            > **即开即用！** 下载对应平台的 zip → 解压 → 双击运行，无需安装 Python 或任何依赖。
+
+            ### ✨ 新功能
+            - 🖥️ 全新 GUI 仪表板（CustomTkinter 现代界面）
+            - 📅 按日期范围扫描（今天 / 昨天 / 本周 / 本月 / 上月 / 自定义）
+            - 📱 手机远程控制 Web 面板（`http://局域网IP:5050`）
+            - 📦 本地智能点赞缓存，自动跳过已赞文章
+            - 👥 多账号管理，一键切换
+            - 🔑 Token 实时 API 校验（每 5 分钟）
+            - 📊 月报 CSV 一键导出
+
+            ### 📥 下载说明
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | macOS | `TBNEWS_Liker-${{ github.ref_name }}-macos.zip` | 解压后双击 `.app` 即可 |
+            | Windows | `TBNEWS_Liker-${{ github.ref_name }}-windows.zip` | 解压后双击 `E+新闻点赞工具.exe` |
+
+            ### ⚠️ 首次使用
+            1. 解压 zip 到任意目录
+            2. 双击运行程序
+            3. 点击 **⚙️ 设置**，输入工号和密码
+            4. 选择扫描范围，点击 **▶ 开始扫描**
+
+            ---
+            *完整文档请参阅 [README](https://github.com/MUXSET/TBNEWS_Liker/blob/master/README.md)*
           generate_release_notes: true
           files: artifacts/**/*.zip
