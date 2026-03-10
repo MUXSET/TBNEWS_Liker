@@ -252,6 +252,55 @@ class App(ctk.CTk):
         web_panel.set_gui_app(self)
         web_panel.start_web_panel(port=5050)
 
+        # 首次运行：无账号时弹出欢迎向导
+        if not config_manager.get_all_accounts():
+            self.after(600, self._show_welcome_dialog)
+
+    def _show_welcome_dialog(self):
+        """首次运行欢迎对话框，引导用户设置第一个账号。"""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("👋 欢迎")
+        dlg.geometry("380x320")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        # 居中显示
+        dlg.after(10, lambda: dlg.geometry(
+            f"+{self.winfo_x() + self.winfo_width()//2 - 190}"
+            f"+{self.winfo_y() + self.winfo_height()//2 - 160}"))
+
+        f = ctk.CTkFrame(dlg, fg_color="transparent")
+        f.pack(fill="both", expand=True, padx=30, pady=20)
+
+        ctk.CTkLabel(f, text="👋 欢迎使用 E+ 点赞工具",
+                     font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(10, 4))
+        ctk.CTkLabel(f, text="请设置您的第一个账号以开始使用",
+                     font=ctk.CTkFont(size=12), text_color="gray").pack(pady=(0, 18))
+
+        ue = ctk.CTkEntry(f, placeholder_text="工号", width=260, height=36)
+        ue.pack(pady=(0, 8))
+        pe = ctk.CTkEntry(f, placeholder_text="密码", show="*", width=260, height=36)
+        pe.pack(pady=(0, 6))
+
+        err_label = ctk.CTkLabel(f, text="", font=ctk.CTkFont(size=11), text_color="#ef4444")
+        err_label.pack()
+
+        def _submit():
+            u, p = ue.get().strip(), pe.get().strip()
+            if not u or not p:
+                err_label.configure(text="⚠️ 请输入工号和密码")
+                return
+            config_manager.add_account(u, p)
+            self._refresh_status()
+            self._refresh_stats()
+            logger.info(f"✅ 账号 {u} 已添加，欢迎使用！")
+            dlg.destroy()
+            # 添加账号后立即触发 Token 获取
+            threading.Thread(target=self._initial_checks, daemon=True).start()
+
+        ctk.CTkButton(f, text="🚀 开始使用", height=38, width=260,
+                      font=ctk.CTkFont(size=14, weight="bold"),
+                      command=_submit).pack(pady=(10, 0))
+
     def _initial_checks(self):
         token = config_manager.get_token()
         if not token:
@@ -580,15 +629,18 @@ class App(ctk.CTk):
         sf = ctk.CTkScrollableFrame(dlg, width=420)
         sf.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # 当前账号
+        # 当前账号（只读显示）
         self._sec(sf, "👤 当前账号")
         un, pw = config_manager.get_credentials()
-        ue = ctk.CTkEntry(sf, placeholder_text="工号", width=260)
-        ue.pack(anchor="w", padx=12, pady=2)
-        if un: ue.insert(0, un)
-        pe = ctk.CTkEntry(sf, placeholder_text="密码", show="*", width=260)
-        pe.pack(anchor="w", padx=12, pady=2)
-        if pw: pe.insert(0, pw)
+        cur_info = ctk.CTkFrame(sf, fg_color="transparent")
+        cur_info.pack(anchor="w", padx=12, pady=4)
+        cur_label = ctk.CTkLabel(
+            cur_info,
+            text=f"👤  {un}" if un else "⚠️  未设置，请在下方添加账号",
+            font=ctk.CTkFont(size=13),
+            text_color=["#333", "#ccc"] if un else ["#999", "#666"]
+        )
+        cur_label.pack(side="left")
 
         # 添加账号
         self._sec(sf, "➕ 添加账号")
@@ -621,6 +673,12 @@ class App(ctk.CTk):
                 config_manager.add_account(a,b)
                 nue.delete(0,"end"); npe.delete(0,"end")
                 self._refresh_status(); _ral()
+                # 同步刷新「当前账号」显示
+                un_now, _ = config_manager.get_credentials()
+                cur_label.configure(
+                    text=f"👤  {un_now}" if un_now else "⚠️  未设置",
+                    text_color=["#333", "#ccc"] if un_now else ["#999", "#666"]
+                )
         ctk.CTkButton(aaf, text="添加", width=50, height=26, command=_add).pack(side="left")
         _ral()
 
@@ -661,7 +719,6 @@ class App(ctk.CTk):
         # 保存
         def save():
             try:
-                config_manager.update_credentials(ue.get(), pe.get())
                 config_manager.save_intervals(float(se.get()), float(te.get()))
                 config_manager.save_channels(chs)
                 self._refresh_status(); self._refresh_stats()
