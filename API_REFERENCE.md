@@ -11,10 +11,10 @@
 | 认证体系 | 域名 | 凭据类型 | 获取方式 | 用途 |
 |---------|------|---------|---------|------|
 | **tbeanews Token** | `tbeanews.tbea.com` | HTTP Header `token` | Playwright 自动登录后从 Cookie `tbea_art_token` 提取 | 文章详情查询、点赞 |
-| **ejia Session Cookies** | `ejia.tbea.com` | 浏览器 Cookies | Playwright 登录 `ejia.tbea.com` 后用 `context.cookies()` 提取 | IM 消息 API、Session 保活 |
+| **ejia Session Cookies** | `ejia.tbea.com` | 浏览器 Cookies | Playwright 登录 `ejia.tbea.com` 后用 `context.cookies()` 提取 | 公众号文章列表接口（pubacc_v2）、Session 保活 |
 
-> [!WARNING]
-> Cookie 中的 `cu` 字段（如 `64adb51ebd8cca024593457e`）**不等于** IM `groupId` 中的 userId（如 `64adb51fbd8cca02459346eb`）！构建 `groupId` 时必须使用 IM 专用 userId。
+> [!NOTE]
+> 经过 v2.0.1 升级后，原先极易失效的 `im/rest/message/listMessage` 及其繁杂的 `groupId` (`userId`) 拼接机制已彻底弃用。新版 `pubacc_v2` 接口直接使用纯粹的 `channelId` 验证即可。
 
 ---
 
@@ -111,19 +111,18 @@ GET https://tbeanews.tbea.com/api/article/lists?page={page}&limit={limit}
 
 ---
 
-## 4. ejia IM 消息 API（核心）
+## 4. ejia 公众号文章列表 API (pubacc_v2)
 
-### 4.1 获取频道消息列表
+### 4.1 获取频道文章列表
 
 ```http
-POST https://ejia.tbea.com/im/rest/message/listMessage
+POST https://ejia.tbea.com/im/rest/pubacc_v2/listMessage
 Content-Type: application/x-www-form-urlencoded; charset=UTF-8
 ```
 
 | 参数 | 值 | 说明 |
 |-----|-----|------|
-| `groupId` | `XT-{userId}-{channelId}` | 拼接而成 |
-| `userId` | 留空 | 不需要填 |
+| `channelId` | `XT-{channelId}` | 频道 ID，见第 7 节 |
 | `type` | `new` / `old` | 首页用 `new`，翻页用 `old` |
 | `count` | `10` ~ `20` | 每页条数 |
 | `msgId` | 留空 / 上页末尾 msgId | 分页游标 |
@@ -240,12 +239,11 @@ Content-Length: 0
 | 新变厂新闻资讯 | `XT-0ba2025b-e2cb-498b-99b1-cdc741a21f75` | 新变厂新闻 |
 | 开讲了 | `XT-1b1e03a9-8222-4b7f-a7eb-a5d91e2d012d` | 学习专栏 |
 
-**GroupId 构造公式：**
+**`channelId` 格式：**
 ```
-XT-{IM专用userId}-{channelId}
+XT-{channelId}
 ```
-
-> IM 专用 userId（`64adb51fbd8cca02459346eb`）存储在 `config.json` 的 `ejia_user_id` 字段。
+> `channelId` 直接从上述表格中获取，无需额外拼接。
 
 ---
 
@@ -262,9 +260,8 @@ XT-{IM专用userId}-{channelId}
         "JSESSIONID": "...",
         "at": "...",
         "webLappToken": "...",
-        "...": "其他 cookies"
-    },
-    "ejia_user_id": "64adb51fbd8cca02459346eb"
+        "...": "其他 ejia 平台所需的 cookies"
+    }
 }
 ```
 
@@ -272,13 +269,12 @@ XT-{IM专用userId}-{channelId}
 |-----|---------|
 | `tbea_art_token` | 每次 Playwright 登录（约 6h 一次） |
 | `ejia_cookies` | 每次 Playwright 登录自动更新 |
-| `ejia_user_id` | 首次设置后不再覆盖（手动管理） |
 
 ---
 
 ## 9. 关键发现与踩坑记录
 
-1. **`pid` ≠ 推送频道**：文章的 `pid` 字段代表制作方，不代表是哪个频道推送的。只有 IM 消息 API 能确定频道归属。
-2. **`cu` ≠ IM userId**：Cookie 中的 `cu` 值和 IM `groupId` 中的 userId 有多个字符不同，必须从 IM 页面的 `data-groupid` 属性提取正确值。
-3. **双 Session 架构**：`ejia.tbea.com`（IM）和 `tbeanews.tbea.com`（新闻）使用不同的认证体系，必须用两个独立的 `requests.Session` 分别请求，否则 Cookies 会互相干扰。
-4. **IM 页面无法直接访问**：Headless 浏览器访问 `/im/xiaoxi/` 会被重定向到 `/yzj-layout/home/`，IM 模块是嵌入在主页里的 SPA 组件。
+1.  **`pubacc_v2` 接口简化**：新版 `pubacc_v2/listMessage` 接口直接使用 `channelId` 进行过滤，彻底废弃了原先复杂的 `groupId` 拼接机制，大大提高了稳定性和易用性。
+2.  **`pid` ≠ 推送频道**：文章的 `pid` 字段代表制作方，不代表是哪个频道推送的。只有 `pubacc_v2` 接口能确定频道归属。
+3.  **双 Session 架构**：`ejia.tbea.com`（公众号文章）和 `tbeanews.tbea.com`（新闻）使用不同的认证体系，必须用两个独立的 `requests.Session` 分别请求，否则 Cookies 会互相干扰。
+4.  **IM 页面无法直接访问**：Headless 浏览器访问 `/im/xiaoxi/` 会被重定向到 `/yzj-layout/home/`，IM 模块是嵌入在主页里的 SPA 组件。
