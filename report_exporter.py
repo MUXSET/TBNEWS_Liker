@@ -19,63 +19,87 @@ from typing import List, Dict
 from logger import logger
 import config_manager
 
-IM_MESSAGE_API_URL = "https://ejia.tbea.com/im/rest/message/listMessage"
+PUBACC_ARTICLE_API_URL = "https://ejia.tbea.com/pubacc_v2/api/card/getArticleList"
 ARTICLE_DETAIL_API_URL = "https://tbeanews.tbea.com/api/article/detail"
 
-def _fetch_channel_articles(im_session, group_id, channel_name, target_month):
+def _fetch_channel_articles(im_session, channel_id, channel_name, target_month):
     """获取指定频道本月所有推送文章"""
     all_articles = []
-    msg_id = ""
     
-    for page in range(10):
+    for page in range(1, 10):  # 最多翻 10 页
         data = {
-            "groupId": group_id, "userId": "",
-            "type": "new" if page == 0 else "old",
-            "count": 20, "msgId": msg_id,
+            "ids": f'["{channel_id}"]',
+            "source": "1",
+            "pageIndex": str(page),
+            "pageSize": "30" # 一次多拉取点
         }
+        
         try:
-            r = im_session.post(IM_MESSAGE_API_URL, data=data, timeout=15)
+            r = im_session.post(PUBACC_ARTICLE_API_URL, data=data, timeout=15)
             if r.status_code == 401:
-                logger.error("❌ [报告导出] IM Session 过期，无法生成报告。")
+                logger.error("❌ [报告导出] API Session 过期，无法生成报告。")
                 return []
+            
             r.raise_for_status()
             resp = r.json()
-            messages = resp.get("data", {}).get("list", [])
-            has_more = resp.get("data", {}).get("more", False)
             
-            if not messages:
+            if not resp.get("success", False) and str(resp.get("errorCode", "")) != "200":
                 break
-            
-            for msg in messages:
-                if msg.get("msgType") != 6:
-                    continue
-                send_time = msg.get("sendTime", "")
-                param = msg.get("param", {})
-                items = param.get("list", [])
                 
-                entries = items if items else [param]
-                for item in entries:
-                    url = item.get("url", "")
-                    m = re.search(r'id=(\d+)', url)
-                    if m and send_time.startswith(target_month):
-                        art_id = int(m.group(1))
-                        all_articles.append({
-                            "id": art_id,
-                            "title": item.get("title", item.get("text", "")),
-                            "channel": channel_name,
-                            "send_time": send_time,
-                        })
-            
-            found_earlier = any(not msg.get("sendTime", "").startswith(target_month) 
-                              for msg in messages if msg.get("msgType") == 6)
-            if not has_more or found_earlier:
+            articles_list = resp.get("data", [])
+            if not articles_list:
                 break
-            msg_id = messages[-1].get("msgId", "")
-            time.sleep(0.3)
+                
+            page_articles = []
+            for item in articles_list:
+                art_id = None
+                url = item.get("url", "")
+                if url:
+                    m = re.search(r'[?&]id=(\d+)', url)
+                    if m:
+                        art_id = int(m.group(1))
+                        
+                if not art_id:
+                    continue  # 忽略提取不到纯数字ID记录的文章
+                    
+                title = item.get("title", "")
+                
+                pub_ts = item.get("publishTimeStamp") or item.get("sendTime")
+                if pub_ts:
+                    try:
+                        send_time = datetime.fromtimestamp(pub_ts / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        send_time = item.get("publishTime", "2000-01-01 00:00:00")
+                else:
+                    send_time = item.get("publishTime", "2000-01-01 00:00:00")
+                
+                if art_id and title:
+                    page_articles.append({
+                        "id": art_id,
+                        "title": title,
+                        "channel": channel_name,
+                        "send_time": str(send_time)
+                    })
+            
+            # 过滤本月的文章
+            for a in page_articles:
+                if a["send_time"].startswith(target_month):
+                    all_articles.append(a)
+            
+            # 如果所有消息都早于目标月份，停止翻页
+            earliest_time = min((a["send_time"] for a in page_articles), default="9999")
+            if earliest_time < target_month:
+                break
+                
+            if len(articles_list) < 20:
+                break
+                
+            time.sleep(0.5)
+            
         except Exception as e:
             logger.error(f"❌ [报告导出] 拉取频道 {channel_name} 失败: {e}")
             break
-    
+            
     return all_articles
 
 
@@ -88,9 +112,8 @@ def export_monthly_report(stop_event=None) -> str:
     
     tbea_token = config_manager.get_token()
     ejia_cookies = config_manager.get_ejia_cookies()
-    user_id = config_manager.get_ejia_user_id()
     
-    if not tbea_token or not ejia_cookies or not user_id:
+    if not tbea_token or not ejia_cookies:
         logger.error("❌ [报告导出] 凭据不足，无法生成报告。")
         return ""
     
@@ -119,9 +142,8 @@ def export_monthly_report(stop_event=None) -> str:
     for ch in channels:
         if stop_event and stop_event.is_set():
             return ""
-        group_id = f"XT-{user_id}-{ch['id']}"
         logger.info(f"📡 [报告导出] 拉取频道: {ch['name']}...")
-        arts = _fetch_channel_articles(im_session, group_id, ch['name'], current_month)
+        arts = _fetch_channel_articles(im_session, ch['id'], ch['name'], current_month)
         all_articles.extend(arts)
         logger.info(f"    ↳ {len(arts)} 篇")
     
