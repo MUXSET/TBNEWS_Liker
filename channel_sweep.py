@@ -1,107 +1,104 @@
 # =================================================================
 #  channel_sweep.py
-#  Version: 1.0.0
-#  Description: 频道扫描点赞模块（统一版）。
-#               替代 monthly_sweep.py 和 liker.py，支持自定义日期范围。
-#               通过 IM 消息 API 拉取目标频道文章，结合本地缓存
-#               跳过已赞文章，对未赞文章执行点赞。
+#  Version: 2.1.0
+#  Description: 频道扫描点赞模块（新通道版）。
+#               改用全新的 pubacc_v2 公众号接口，免装配 groupId，
+#               直接使用频道 ID 拉取文章列表，彻底解决 0 篇文章问题。
 # =================================================================
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import time
-import re
-from datetime import datetime, timedelta
+from datetime import datetime
 import threading
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple
 from logger import logger
 import config_manager
 import liked_cache
 
-IM_MESSAGE_API_URL = "https://ejia.tbea.com/im/rest/message/listMessage"
+PUBACC_ARTICLE_API_URL = "https://ejia.tbea.com/pubacc_v2/api/card/getArticleList"
 CHECK_LOGIN_URL = "https://ejia.tbea.com/space/c/rest/user/checkLogin"
 ARTICLE_DETAIL_API_URL = "https://tbeanews.tbea.com/api/article/detail"
 LIKE_API_URL = "https://tbeanews.tbea.com/api/article/addDigg"
 
 class CookiesExpiredError(Exception):
-    """当 IM API 返回 401 时抛出，通知调用者需要刷新 Cookies"""
+    """当 API 返回 401 时抛出，通知调用者需要刷新 Cookies"""
     pass
 
-def _extract_articles_from_messages(messages: list) -> List[Dict]:
-    """从 IM 消息列表中提取文章信息 (去重)"""
-    articles = []
-    seen_ids = set()
-    
-    for msg in messages:
-        send_time = msg.get("sendTime", "")
-        param = msg.get("param", {})
-        
-        if msg.get("msgType") != 6:
-            continue
-            
-        items = param.get("list", [])
-        if not items:
-            url = param.get("url", "")
-            m = re.search(r'id=(\d+)', url)
-            if m:
-                art_id = int(m.group(1))
-                if art_id not in seen_ids:
-                    seen_ids.add(art_id)
-                    articles.append({
-                        "id": art_id,
-                        "title": param.get("title", param.get("text", "")),
-                        "send_time": send_time,
-                    })
-        else:
-            for item in items:
-                url = item.get("url", "")
-                m = re.search(r'id=(\d+)', url)
-                if m:
-                    art_id = int(m.group(1))
-                    if art_id not in seen_ids:
-                        seen_ids.add(art_id)
-                        articles.append({
-                            "id": art_id,
-                            "title": item.get("title", item.get("text", "")),
-                            "send_time": send_time,
-                        })
-    return articles
-
-def _get_channel_articles(session: requests.Session, group_id: str,
+def _get_channel_articles(session: requests.Session, channel_id: str,
                           start_date: str, end_date: str) -> List[Dict]:
     """
     获取指定频道、指定日期范围的推送文章。
     start_date/end_date 格式: "YYYY-MM-DD"
     """
     all_articles = []
-    msg_id = ""
     
-    for page in range(15):  # 最多翻 15 页
+    for page in range(1, 20):  # 最多翻 20 页
         data = {
-            "groupId": group_id,
-            "userId": "",
-            "type": "new" if page == 0 else "old",
-            "count": 20,
-            "msgId": msg_id,
+            "ids": f'["{channel_id}"]',
+            "source": "1",
+            "pageIndex": str(page),
+            "pageSize": "20"
         }
         
         try:
-            r = session.post(IM_MESSAGE_API_URL, data=data, timeout=15)
+            r = session.post(PUBACC_ARTICLE_API_URL, data=data, timeout=15)
             
+            # PubAcc API 如果会话过期可能不直接 401，也可能返回特殊的 code，
+            # 这里保守判断
             if r.status_code == 401:
-                raise CookiesExpiredError("IM Session Cookies 已过期 (401)")
+                raise CookiesExpiredError("Session Cookies 已过期 (401)")
             
             r.raise_for_status()
             resp = r.json()
-            resp_data = resp.get("data", {})
-            messages = resp_data.get("list", [])
-            has_more = resp_data.get("more", False)
-            
-            if not messages:
+            # print(f"DEBUG resp: {resp}") # For manual debugging if needed
+            if not resp.get("success", False) and str(resp.get("errorCode", "")) != "200":
+                logger.error(f"❌ [频道扫描] API 返回异常状态: {resp.get('error')} | Raw: {str(resp)[:100]}")
                 break
                 
-            page_articles = _extract_articles_from_messages(messages)
+            # data 直接是个列表
+            articles_list = resp.get("data", [])
+            
+            if not articles_list:
+                break
+                
+            page_articles = []
+            for item in articles_list:
+                # pubacc_v2 返回的是 UUID (eg. 403ade1d-af2f-4eb6-b8dd-0e7ed13bde00)
+                # 但 tbeanews API 需要的是纯数字 ID (eg. 11947)
+                # 这个数字 ID 藏在 url 里: https://tbeanews.tbea.com/pc/show?id=11947&appid=...
+                art_id = None
+                url = item.get("url", "")
+                if url:
+                    import re
+                    m = re.search(r'[?&]id=(\d+)', url)
+                    if m:
+                        art_id = int(m.group(1))
+                
+                # 如果没有提取到数字 ID，退而求其次用 UUID（虽然后续可能会报错）
+                if not art_id:
+                    art_id = item.get("id") or item.get("yzj_id")
+                    
+                title = item.get("title", "")
+                
+                # pubacc_v2 API 提供 publishTimeStamp (毫秒)
+                pub_ts = item.get("publishTimeStamp") or item.get("sendTime")
+                if pub_ts:
+                    try:
+                        send_time = datetime.fromtimestamp(pub_ts / 1000.0).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        send_time = item.get("publishTime", "2000-01-01 00:00:00")
+                else:
+                    send_time = item.get("publishTime", "2000-01-01 00:00:00")
+                
+                if art_id and title:
+                    page_articles.append({
+                        "id": art_id,
+                        "title": title,
+                        "send_time": str(send_time)
+                    })
+            
             
             # 过滤日期范围内的文章
             for a in page_articles:
@@ -114,16 +111,15 @@ def _get_channel_articles(session: requests.Session, group_id: str,
             if earliest_date < start_date:
                 break
                 
-            if not has_more:
+            if len(articles_list) < 20:
                 break
                 
-            msg_id = messages[-1].get("msgId", "")
             time.sleep(0.5)
             
         except CookiesExpiredError:
             raise
         except Exception as e:
-            logger.error(f"❌ [频道扫描] 获取频道历史消息失败: {e}")
+            logger.error(f"❌ [频道扫描] 获取频道历史文章失败: {e}")
             break
             
     return all_articles
@@ -133,16 +129,10 @@ def run_sweep(start_date: str = None, end_date: str = None,
     """
     执行频道文章扫描点赞。
     
-    Args:
-        start_date: 起始日期 "YYYY-MM-DD"，默认本月1号
-        end_date: 结束日期 "YYYY-MM-DD"，默认今天
-        stop_event: 停止信号
-    
     Returns:
         (总文章数, 新点赞数, 跳过数)
         总文章数=-1 表示 Cookies 过期
     """
-    # 默认日期范围: 本月
     if not start_date:
         start_date = datetime.now().strftime("%Y-%m-01")
     if not end_date:
@@ -150,45 +140,42 @@ def run_sweep(start_date: str = None, end_date: str = None,
     
     logger.info(f"🔄 [频道扫描] 扫描日期范围: {start_date} ~ {end_date}")
     
-    # 1. 验证凭证
     tbea_token = config_manager.get_token()
     ejia_cookies = config_manager.get_ejia_cookies()
-    user_id = config_manager.get_ejia_user_id()
     
-    if not tbea_token or not ejia_cookies or not user_id:
+    if not tbea_token or not ejia_cookies:
         logger.error("❌ [频道扫描] 凭据不足，请先更新 Token。")
         return 0, 0, 0
 
-    # 先探测 Cookies 是否存活
     try:
         probe = requests.post(CHECK_LOGIN_URL, cookies=ejia_cookies,
                               headers={"Content-Length": "0"}, timeout=10)
         if probe.status_code == 401:
-            logger.warning("⚠️ [频道扫描] IM Session 已过期，需要重新登录。")
+            logger.warning("⚠️ [频道扫描] Session 已过期，需要重新登录。")
             return -1, 0, 0
     except Exception:
         pass
     
     target_channels = config_manager.get_channels()
     
-    # 2. 准备 Sessions
     retry = Retry(connect=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
     
-    im_session = requests.Session()
-    im_session.mount('https://', adapter)
-    im_session.cookies.update(ejia_cookies)
-    im_session.headers.update({
-        "User-Agent": "Mozilla/5.0", "X-Requested-With": "XMLHttpRequest",
+    pub_session = requests.Session()
+    pub_session.mount('https://', adapter)
+    pub_session.cookies.update(ejia_cookies)
+    pub_session.headers.update({
+        "User-Agent": "Mozilla/5.0",
+        "X-Requested-With": "XMLHttpRequest",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "Origin": "https://ejia.tbea.com", "Referer": "https://ejia.tbea.com/im/xiaoxi/",
+        "Origin": "https://ejia.tbea.com",
+        "Referer": "https://ejia.tbea.com/im/xiaoxi/",
     })
     
     news_session = requests.Session()
     news_session.mount('https://', adapter)
     news_session.headers.update({"User-Agent": "Mozilla/5.0", "token": tbea_token})
 
-    # 3. 收集文章
     all_articles = []
     
     try:
@@ -197,27 +184,25 @@ def run_sweep(start_date: str = None, end_date: str = None,
                 logger.info("⏹️ [频道扫描] 收到停止信号。")
                 return 0, 0, 0
                 
-            group_id = f"XT-{user_id}-{ch['id']}"
+            ch_id = ch['id']  # 直接使用频道自身ID，不再需要拼接 userId
             logger.info(f"📡 [频道扫描] 拉取频道 [{ch['name']}]...")
-            arts = _get_channel_articles(im_session, group_id, start_date, end_date)
+            arts = _get_channel_articles(pub_session, ch_id, start_date, end_date)
             all_articles.extend(arts)
-            logger.info(f"    ↳ {len(arts)} 篇文章")
+            logger.info(f"    ↳ 找到 {len(arts)} 篇对应日期范围文章")
     except CookiesExpiredError:
         logger.warning("⚠️ [频道扫描] Cookies 已过期。")
         return -1, 0, 0
         
-    # 全局去重
     unique = list({a['id']: a for a in all_articles}.values())
     unique.sort(key=lambda x: x['send_time'])
     
     total = len(unique)
-    logger.info(f"📋 [频道扫描] 共 {total} 篇文章（去重后），开始检查点赞状态...")
+    logger.info(f"📋 [频道扫描] 共有 {total} 篇文章（去重后），开始检查点赞状态...")
     
     if total == 0:
         logger.info("ℹ️ [频道扫描] 暂无文章需要处理。")
         return 0, 0, 0
         
-    # 4. 逐个处理
     liked_count = 0
     skipped_count = 0
     
@@ -230,13 +215,11 @@ def run_sweep(start_date: str = None, end_date: str = None,
         title = art['title'][:20]
         display = f"「{title}」(ID:{art_id})"
         
-        # 先查本地缓存
         if liked_cache.is_liked(art_id):
             logger.info(f"💨 [频道扫描] 本地已记录，跳过: {display}")
             skipped_count += 1
             continue
         
-        # 查 API 确认
         try:
             detail_res = news_session.get(ARTICLE_DETAIL_API_URL, params={'id': art_id}, timeout=10)
             detail_res.raise_for_status()
@@ -246,7 +229,6 @@ def run_sweep(start_date: str = None, end_date: str = None,
                 is_digg = d_data['data'].get("is_digg", True)
                 if is_digg:
                     logger.info(f"⏭️ [频道扫描] 服务端已赞，跳过: {display}")
-                    # 服务端确认已赞 → 安全写入缓存
                     liked_cache.mark_liked(art_id)
                     skipped_count += 1
                 else:
@@ -255,14 +237,12 @@ def run_sweep(start_date: str = None, end_date: str = None,
                     like_data = like_res.json()
                     
                     if like_data.get("code") == 1:
-                        # ✅ API 确认点赞成功 → 写入缓存
                         liked_cache.mark_liked(art_id)
                         logger.info(f"✅ [频道扫描] {display} 点赞成功！")
                         liked_count += 1
-                    elif "重复点赞" in like_data.get('msg', ''):
-                        # 重复点赞也算成功
+                    elif "重复" in like_data.get('msg', ''):
                         liked_cache.mark_liked(art_id)
-                        logger.info(f"✅ [频道扫描] {display} 已点赞（重复确认）")
+                        logger.info(f"✅ [频道扫描] {display} 已点赞（重试响应）")
                         skipped_count += 1
                     else:
                         logger.error(f"❌ [频道扫描] {display} 点赞失败: {like_data.get('msg')}")
@@ -278,5 +258,4 @@ def run_sweep(start_date: str = None, end_date: str = None,
     logger.info(f"💾 [频道扫描] 本地缓存已记录 {liked_cache.get_cache_size()} 篇文章。")
     
     config_manager.save_sweep_stats(total, liked_count, skipped_count)
-    
     return total, liked_count, skipped_count

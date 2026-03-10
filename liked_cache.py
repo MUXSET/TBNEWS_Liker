@@ -40,7 +40,7 @@ def _save_cache():
         return
     tmp = CACHE_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(sorted(_cache), f)
+        json.dump(sorted(_cache, key=str), f)
     os.replace(tmp, CACHE_FILE)
 
 def is_liked(article_id: int) -> bool:

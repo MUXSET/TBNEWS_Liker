@@ -89,17 +89,57 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
             await page.locator("#log-btn").click()
             logger.info("✅ [Token] 登录信息已提交，等待跳转...")
 
-            # Use a robust cross-platform way to find the specific iframe containing the news
-            # Playwright's page.frames might return different counts based on load timing
+            # 关键修复：等待登录后页面完全加载
+            try:
+                await page.wait_for_load_state('load', timeout=30000)
+                logger.info("✅ [Token] 登录后页面已加载。")
+            except PlaywrightTimeoutError:
+                logger.warning("⚠️ [Token] 登录后页面 load 事件超时，继续尝试...")
+
+            # 额外等待，确保 iframe 有时间渲染
+            await page.wait_for_timeout(3000)
+
+            # 查找 portal iframe
+            logger.info("🔍 [Token] 正在查找门户 iframe...")
+            try:
+                # 先确认 iframe 存在
+                iframe_el = page.locator("iframe[src*='portal']")
+                await iframe_el.wait_for(state="attached", timeout=30000)
+                logger.info("✅ [Token] 已找到门户 iframe。")
+            except PlaywrightTimeoutError:
+                # 尝试截图以便调试
+                try:
+                    import app_context
+                    screenshot_path = os.path.join(app_context.APP_DATA_PATH, "debug_screenshot.png")
+                    await page.screenshot(path=screenshot_path)
+                    logger.info(f"📸 [Token] 调试截图已保存: {screenshot_path}")
+                except Exception:
+                    pass
+                logger.error("❌ [Token] 找不到门户 iframe (iframe[src*='portal'])，登录可能未成功跳转。")
+                await browser.close()
+                return None
+
             news_frame = page.frame_locator("iframe[src*='portal']")
-            # Instead of matching exact text which might contain spaces/newlines or be translated,
-            # we just click the header button on the news card directly.
+
+            # 在 iframe 中查找新闻资讯卡片
+            logger.info("🔍 [Token] 正在查找新闻资讯卡片...")
             news_card_locator = news_frame.locator("div.card-component:has(span[title='新闻资讯'])")
+            try:
+                await news_card_locator.wait_for(state="visible", timeout=30000)
+                logger.info("✅ [Token] 已找到新闻资讯卡片。")
+            except PlaywrightTimeoutError:
+                logger.error("❌ [Token] 在门户中找不到新闻资讯卡片。")
+                await browser.close()
+                return None
+
+            # 点击"更多"按钮打开新闻列表页
+            logger.info("🔍 [Token] 正在点击「更多」按钮...")
             async with context.expect_page() as new_page_info:
                 await news_card_locator.locator(".card-header-button").click()
 
             news_page = await new_page_info.value
             await news_page.wait_for_load_state()
+            logger.info("✅ [Token] 新闻列表页已打开。")
 
             await news_page.locator("(//li[@class='article-item'])[1]").click()
             logger.info("🔍 [Token] 正在捕获关键Cookie...")
@@ -118,29 +158,9 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
             ]
             ejia_cookies = {c['name']: c['value'] for c in all_cookies if c['name'] in ejia_cookie_names}
 
-            # 重要！提取 IM 专用的正确 userId
-            # cookie 中的 'cu' 字段和 IM groupId 中的 userId 不同！
-            # 必须从 IM 页面的 HTML 属性中提取。
+            # 现在的 pubacc_v2 接口不再需要真实的 IM userId，
+            # 仅仅保留 cu cookie 作为占位符，以防其他旧接口还需要
             im_user_id = ejia_cookies.get('cu', '')
-            try:
-                logger.info("📡 [Token] 正在提取 IM 专用 userId...")
-                # 尝试导航到 IM 页面取 data-groupid
-                im_page_url = "https://ejia.tbea.com/im/xiaoxi/"
-                await page.goto(im_page_url, timeout=30000)
-                await page.wait_for_load_state('networkidle', timeout=15000)
-                
-                # 尝试从 iframe 或页面中找 data-groupid
-                chat_name_el = page.locator('[data-groupid]').first
-                if await chat_name_el.count() > 0:
-                    data_gid = await chat_name_el.get_attribute('data-groupid')
-                    if data_gid and data_gid.startswith('XT-'):
-                        # 格式: XT-{userId}-XT-{channelId}
-                        parts = data_gid.split('-XT-')
-                        if len(parts) >= 2:
-                            im_user_id = parts[0].replace('XT-', '')
-                            logger.info(f"✅ [Token] 成功提取 IM userId: {im_user_id}")
-            except Exception as e:
-                logger.warning(f"⚠️ [Token] 无法从 IM 页面提取 userId，使用 cookie cu 值: {e}")
 
             await browser.close()
 

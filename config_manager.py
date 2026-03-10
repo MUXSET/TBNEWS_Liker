@@ -10,7 +10,7 @@
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from app_context import CONFIG_FILE_PATH
 from logger import logger
 
@@ -210,17 +210,16 @@ def get_token() -> Optional[str]:
 def update_credentials(username: str, password: str):
     _update_active_account({"username": username.strip(), "password": password.strip()})
 
-def save_token(token_data: dict | str):
+def save_token(token_data: Union[dict, str]):
     if isinstance(token_data, dict):
         updates = {
             "tbea_art_token": token_data.get("token", ""),
             "ejia_cookies": token_data.get("ejia_cookies", {}),
             "token_refresh_time": time.time(),
         }
-        # 仅在当前账号没有 ejia_user_id 时才写入
-        acc = _get_active_account()
+        # 始终更新 ejia_user_id（每次刷新 Token 可能提取到更准确的值）
         new_uid = token_data.get("ejia_user_id", "")
-        if new_uid and not acc.get("ejia_user_id"):
+        if new_uid:
             updates["ejia_user_id"] = new_uid
         _update_active_account(updates)
     else:
