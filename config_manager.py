@@ -59,6 +59,8 @@ def _migrate_config(config: Dict) -> Dict:
     # 保留全局设置
     config.setdefault("scan_interval_hours", 1.0)
     config.setdefault("token_refresh_interval_hours", 6.0)
+    config.setdefault("auto_check_monthly_total", True)
+    config.setdefault("disable_system_proxy", False)
     config.setdefault("channels", DEFAULT_CHANNELS)
     
     _save_config(config)
@@ -73,6 +75,8 @@ def ensure_config_exists() -> bool:
             "active_account": -1,
             "scan_interval_hours": 1.0,
             "token_refresh_interval_hours": 6.0,
+            "auto_check_monthly_total": True,
+            "disable_system_proxy": False,
             "channels": DEFAULT_CHANNELS
         }
         _save_config(default_config)
@@ -249,6 +253,15 @@ def save_monthly_stats(total: int, liked: int):
         "month": time.strftime("%Y-%m")
     }})
 
+def update_monthly_total_only(total: int):
+    """仅更新本月总数，保留点赞数缓存"""
+    stats = get_monthly_stats()
+    liked = stats.get("monthly_liked", 0)
+    _update_active_account({"monthly_stats": {
+        "monthly_total": total, "monthly_liked": liked,
+        "month": time.strftime("%Y-%m")
+    }})
+
 def get_monthly_stats() -> dict:
     stats = _get_active_account().get("monthly_stats", {})
     if stats.get("month") == time.strftime("%Y-%m"):
@@ -276,4 +289,30 @@ def get_channels() -> List[Dict]:
 def save_channels(channels: List[Dict]):
     config = _load_config()
     config["channels"] = channels
+    _save_config(config)
+
+def get_auto_check_monthly_total() -> bool:
+    config = _load_config()
+    if "accounts" not in config:
+        config = _migrate_config(config)
+    return config.get("auto_check_monthly_total", True)
+
+def save_auto_check_monthly_total(enabled: bool):
+    config = _load_config()
+    if "accounts" not in config:
+        config = _migrate_config(config)
+    config["auto_check_monthly_total"] = bool(enabled)
+    _save_config(config)
+
+def get_disable_system_proxy() -> bool:
+    config = _load_config()
+    if "accounts" not in config:
+        config = _migrate_config(config)
+    return config.get("disable_system_proxy", False)
+
+def save_disable_system_proxy(enabled: bool):
+    config = _load_config()
+    if "accounts" not in config:
+        config = _migrate_config(config)
+    config["disable_system_proxy"] = bool(enabled)
     _save_config(config)

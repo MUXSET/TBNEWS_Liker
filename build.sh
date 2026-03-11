@@ -11,20 +11,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # 读取版本号
-VERSION=$(python -c "from version import __version__; print(__version__)")
+VERSION=$(venv/bin/python -c "from version import __version__; print(__version__)")
 RELEASE_DIR="TBNEWS_Liker-v${VERSION}-macos"
 
 echo "🚀 开始打包 TBNEWS_Liker v${VERSION} ..."
 
-# 1) 确保 pyinstaller 已安装
-if ! command -v pyinstaller &> /dev/null; then
+# 1) 确保 venv/bin/pyinstaller 已安装
+if ! command -v venv/bin/pyinstaller &> /dev/null; then
     echo "📦 安装 PyInstaller..."
-    pip install pyinstaller
+    venv/bin/pip install venv/bin/pyinstaller
 fi
 
 # 2) 打包
 echo "🔨 PyInstaller 打包中..."
-pyinstaller TBNEWS_Liker.spec --noconfirm
+venv/bin/pyinstaller TBNEWS_Liker.spec --noconfirm
 
 # 3) 组装发布目录
 echo "📁 组装发布包..."

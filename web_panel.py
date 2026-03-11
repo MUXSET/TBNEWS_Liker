@@ -34,7 +34,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>E+ 点赞工具 v2.0.0 - 远程面板</title>
+<title>TBE+ 阅赞助手 v2.1.0 - 远程面板</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -105,7 +105,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
 <div class="container">
-  <h1>⚡ E+ 点赞工具 远程面板</h1>
+  <h1>⚡ TBE+ 阅赞助手 远程面板</h1>
   
   <div class="account-bar">
     <div><span class="label">当前账号</span><br><span class="name" id="acc-name">---</span></div>

@@ -34,7 +34,7 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # ---- 平台特定配置 ----
-APP_NAME = 'E+新闻点赞工具'
+APP_NAME = 'TBE+阅赞助手'
 
 if sys.platform == 'darwin':
     # macOS: 生成 .app bundle

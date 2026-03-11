@@ -130,10 +130,13 @@ def _get_channel_articles(session: requests.Session, channel_id: str,
     return all_articles
 
 def run_sweep(start_date: str = None, end_date: str = None,
-              stop_event: threading.Event = None) -> Tuple[int, int, int]:
+              stop_event: threading.Event = None, dry_run: bool = False) -> Tuple[int, int, int]:
     """
     执行频道文章扫描点赞。
     
+    Args:
+        dry_run: 若为 True，则仅统计文章总数，不访问详情页且不点赞
+        
     Returns:
         (总文章数, 新点赞数, 跳过数)
         总文章数=-1 表示 Cookies 过期
@@ -143,7 +146,10 @@ def run_sweep(start_date: str = None, end_date: str = None,
     if not end_date:
         end_date = datetime.now().strftime("%Y-%m-%d")
     
-    logger.info(f"🔄 [频道扫描] 扫描日期范围: {start_date} ~ {end_date}")
+    if dry_run:
+        logger.info(f"🔄 [频道扫描-干跑] 仅统计日期范围文章数: {start_date} ~ {end_date}")
+    else:
+        logger.info(f"🔄 [频道扫描] 扫描日期范围: {start_date} ~ {end_date}")
     
     tbea_token = config_manager.get_token()
     ejia_cookies = config_manager.get_ejia_cookies()
@@ -181,6 +187,13 @@ def run_sweep(start_date: str = None, end_date: str = None,
     news_session.mount('https://', adapter)
     news_session.headers.update({"User-Agent": "Mozilla/5.0", "token": tbea_token})
 
+    # [修复]: 终端安全管理系统/防勒索网络拦截绕过
+    if config_manager.get_disable_system_proxy():
+        logger.info("🛡️ [频道扫描] 已启用环境代理绕过 (强制直连)")
+        empty_proxy = {"http": "", "https": "", "all": ""}
+        pub_session.proxies.update(empty_proxy)
+        news_session.proxies.update(empty_proxy)
+
     all_articles = []
     
     try:
@@ -202,6 +215,12 @@ def run_sweep(start_date: str = None, end_date: str = None,
     unique.sort(key=lambda x: x['send_time'])
     
     total = len(unique)
+    
+    if dry_run:
+        logger.info(f"📋 [频道扫描-干跑] 本月共有 {total} 篇文章（去重后）。直接返回。")
+        config_manager.update_monthly_total_only(total)
+        return total, 0, 0
+    
     logger.info(f"📋 [频道扫描] 共有 {total} 篇文章（去重后），开始检查点赞状态...")
     
     if total == 0:
@@ -254,8 +273,17 @@ def run_sweep(start_date: str = None, end_date: str = None,
             else:
                 logger.warning(f"⚠️ [频道扫描] 无法获取文章详情: {art_id}")
                 
+        except requests.exceptions.RequestException as re:
+            err_msg = str(re)
+            if "10013" in err_msg or "10054" in err_msg or "Connection aborted" in err_msg:
+                logger.error(f"❌ [频道扫描] 网络被强行阻断 (10013/10054)。")
+                logger.info("ℹ️ [提示] 这通常是由于企业终端安全软件(如深信服/火绒企业版)拦截了请求。")
+                logger.info("ℹ️ [提示] 请在『设置』中开启「强制直连」重试。")
+            else:
+                logger.error(f"❌ [频道扫描] 网络请求异常: {type(re).__name__} - 请检查网络。")
+                
         except Exception as e:
-            logger.error(f"❌ [频道扫描] 处理 {display} 时网络错误: {e}")
+            logger.error(f"❌ [频道扫描] 处理 {display} 时发生未知错误: {e}")
             
         time.sleep(1.0)
         

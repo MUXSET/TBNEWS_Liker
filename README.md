@@ -1,11 +1,14 @@
-# E+ 新闻全自动点赞工具 v2.1.0
+# TBE+ 阅赞助手 (TBE+ News Assistant) v2.2.0
 
-![版本](https://img.shields.io/badge/version-2.1.0-blue.svg) ![语言](https://img.shields.io/badge/language-Python-green.svg) ![作者](https://img.shields.io/badge/author-MUXSET-orange.svg) ![协议](https://img.shields.io/badge/license-MIT-lightgrey.svg)
+![版本](https://img.shields.io/badge/version-2.2.0-blue.svg) ![语言](https://img.shields.io/badge/language-Python-green.svg) ![作者](https://img.shields.io/badge/author-MUXSET-orange.svg) ![协议](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
-> **🚀 v2.0.0 系列史诗级更新！**
+> **🚀 v2.2.0 新体验升级！**
+> 新增启动时无感核算当月文章总数功能，以及“强制直连”选项一键绕过 IP-Guard、深信服等企业终端网络审计安全客户端，实现更极致的挂机体验！
+
+> **🌟 v2.0.0 系列史诗级更新！**
 > 全面重构的架构升级。全新 GUI 仪表板 + 手机 Web 远程控制 + 智能点赞缓存 + `pubacc_v2` 极速公众号接口全面迁移。从被封杀的旧版短脚鸡进化为真正的极速自动打卡神器。
 
-**E+ 新闻全自动点赞工具** 是一款专为 TBEA E+ 新闻平台设计的自动化文章扫描与点赞工具。支持 7×24 小时无人值守运行，智能处理 Token 过期与 Session 保活。
+**TBE+ 阅赞助手** 是一款专为 TBEA 平台量身打造的高效自动化聚合阅读与点赞工作台。基于全新重构的底层极速抓取引擎，彻底解决账号掉线痛点。内置智能无感缓存与全天候 Session 保活机制，提供从桌面 GUI 数据大盘到移动 Web 控制端的一站式、7×24 小时真正无人值守体验。
 
 ---
 
@@ -122,13 +125,18 @@ python run.py
 
 ## 📋 版本历史
 
+**v2.2.0**
+- 新增 "启动时自动统计本月文章总数"，卡片展示更灵动（首次验证通过亦会触发）。
+- 新增 "强制直连 (绕过系统代理)"，彻底攻克企业终端安全管控软件 (如深信服/IP-Guard) 所引发的 `WinError 10013` 连接重置难题。
+- 修复 SSO 登录跳转时因为 `target="_blank"` 属性被浏览器新标签页拦截导致的获取凭证超时。
+
 ### v2.1.0 (2026-03-11) — 稳定体验版终极升级
 
 本次更新解决了自大改版以来收集到的所有边缘体验问题，强烈建议所有用户升级。
 - **📊 数据大盘与 UI 升级**：新增专属「🔄 刷新凭据」按钮可一键强刷 Token；彻底修复修改扫描日期后导致大字报卡片混乱的盲区，建立独立「本月存档」隔离；重写所有数字卡片交互，悬停即可优雅呼出上一次真实执行的具体战况。
 - **🔐 账号与安全性**：全新「后台登录静默强校验」拦截一切错误配置入库；底层 Chromium 引擎支持按本机（Mac/Win）1:1 全自动分发专属系统级 UserAgent，完美融合绕过云端防火墙拦截。
-- **�️ Token提取底层重构**：抛弃极易超时失效的“新标签页拦截”方案，改用同源单页面直接发生 SSO 重定向拦截；弃用 `localStorage` 取值，升级为直连 BrowserContext 以 `0.5s` 频率高频轮询底层实时 Cookie，彻底根治取不到 Token 的世纪难题。
-- **�🐛 深度 Bug 修复**：以 HTTP 报文 Commit 极速侦听替代等待图片加载，解决首次 15 秒玄学超时卡死；修复未加账号强点“X”关闭迎新引导窗造成的进程崩溃；补回误删的 Requests 依赖彻底治愈「Token 未知」故障灯。
+- **️ Token提取底层重构**：抛弃极易超时失效的“新标签页拦截”方案，改用同源单页面直接发生 SSO 重定向拦截；弃用 `localStorage` 取值，升级为直连 BrowserContext 以 `0.5s` 频率高频轮询底层实时 Cookie，彻底根治取不到 Token 的世纪难题。
+- **🐛 深度 Bug 修复**：以 HTTP 报文 Commit 极速侦听替代等待图片加载，解决首次 15 秒玄学超时卡死；修复未加账号强点“X”关闭迎新引导窗造成的进程崩溃；补回误删的 Requests 依赖彻底治愈「Token 未知」故障灯。
 
 ### v2.0.3 (2026-03-10) — 终极修复版
 - 🚀 **全面迁移 `pubacc_v2` 接口**：彻底解决官方关闭聊天历史接口（IM Session 过期 / 返回 0 篇文章）导致的毁灭性打击。

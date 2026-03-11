@@ -140,9 +140,22 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
                 return None
 
             try:
-                # 关键修复3: 强制点击，并允许在同一标签页发生跳转，捕获带 ticket 的 SSO 链接
+                # 关键修复4: 移除 target="_blank" 以防止新标签页拦截，并在页面上下文中直接执行点击
                 logger.info("🔍 [Token] 点击文章触发 SSO 跳转...")
-                await page.locator("(//li[@class='article-item'])[1]").click(force=True)
+                locator = page.locator("(//li[@class='article-item'])[1]")
+                
+                # 确保元素可交互后再执行 JS
+                await locator.wait_for(state="visible", timeout=10000)
+                # 等待 1.5 秒，防止前端框架(Vue/React)尚未绑定好 href 或点击事件
+                await page.wait_for_timeout(1500) 
+                
+                await locator.evaluate("""
+                    node => {
+                        let a = node.querySelector('a');
+                        if(a) a.removeAttribute('target');
+                        node.click();
+                    }
+                """)
                 
                 # 等待跳转到包含 tbeanews 的具体文章页面（携带有 ticket）
                 # Relaxed to "commit" instead of default "load" to prevent timeouts if the heavy news page stalls

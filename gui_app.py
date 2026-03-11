@@ -114,7 +114,7 @@ class App(ctk.CTk):
         self.sidebar = sb
 
         # 1) Logo
-        ctk.CTkLabel(sb, text="⚡ E+ 点赞", font=ctk.CTkFont(size=22, weight="bold")
+        ctk.CTkLabel(sb, text="⚡ TBE+ 阅赞助手", font=ctk.CTkFont(size=22, weight="bold")
                       ).pack(pady=(30, 2))
         ctk.CTkLabel(sb, text="自动新闻点赞工具", font=ctk.CTkFont(size=11),
                       text_color=["#888", "#666"]).pack(pady=(0, 20))
@@ -296,17 +296,30 @@ class App(ctk.CTk):
         self._refresh_stats()
 
         logger.info("=========================================")
-        logger.info(f"  ⚡ E+ 自动点赞工具 v{__version__} 已启动")
+        logger.info(f"  ⚡ {__app_name__} v{__version__} 已启动")
         logger.info(f"  📦 本地缓存: {liked_cache.get_cache_size()} 篇已赞记录")
         logger.info("=========================================")
 
         threading.Thread(target=self._initial_checks, daemon=True).start()
+        
+        self._trigger_auto_check()
+        
         web_panel.set_gui_app(self)
         web_panel.start_web_panel(port=5050)
 
         # 首次运行：无账号时弹出欢迎向导
         if not config_manager.get_all_accounts():
             self.after(600, self._show_welcome_dialog)
+
+    def _trigger_auto_check(self):
+        if config_manager.get_auto_check_monthly_total() and config_manager.get_token():
+            def _worker():
+                sd = datetime.now().strftime("%Y-%m-01")
+                ed = datetime.now().strftime("%Y-%m-%d")
+                import channel_sweep
+                channel_sweep.run_sweep(start_date=sd, end_date=ed, dry_run=True)
+                self.after(0, self._refresh_stats)
+            threading.Thread(target=_worker, daemon=True).start()
 
     def _show_welcome_dialog(self):
         """首次运行欢迎对话框，引导用户设置第一个账号。"""
@@ -331,7 +344,7 @@ class App(ctk.CTk):
         f = ctk.CTkFrame(dlg, fg_color="transparent")
         f.pack(fill="both", expand=True, padx=30, pady=20)
 
-        ctk.CTkLabel(f, text="👋 欢迎使用 E+ 点赞工具",
+        ctk.CTkLabel(f, text="👋 欢迎使用 TBE+ 阅赞助手",
                      font=ctk.CTkFont(size=18, weight="bold")).pack(pady=(10, 4))
         ctk.CTkLabel(f, text="请设置您的第一个账号以开始使用",
                      font=ctk.CTkFont(size=12), text_color="gray").pack(pady=(0, 18))
@@ -369,6 +382,7 @@ class App(ctk.CTk):
                     self.after(500, self._refresh_status)
                     self.after(500, self._refresh_stats)
                     self.after(500, self._initial_checks)
+                    self.after(600, self._trigger_auto_check)
                     self.after(1000, dlg.destroy)
                 else:
                     self.after(0, lambda: submit_btn.configure(state="normal", text="🚀 开始使用"))
@@ -822,6 +836,18 @@ class App(ctk.CTk):
         ctk.CTkLabel(frf, text=" Token:").pack(side="left")
         te = ctk.CTkEntry(frf, width=45); te.pack(side="left", padx=3); te.insert(0, str(thr))
 
+        # 启动时检查
+        self._sec(sf, "🚀 其他设置")
+        scf = ctk.CTkFrame(sf, fg_color="transparent")
+        scf.pack(fill="x", padx=12, pady=2)
+        auto_chk_var = ctk.BooleanVar(value=config_manager.get_auto_check_monthly_total())
+        chk1 = ctk.CTkSwitch(scf, text="启动时自动统计本月文章总数", variable=auto_chk_var)
+        chk1.pack(anchor="w", pady=(0, 6))
+
+        disable_proxy_var = ctk.BooleanVar(value=config_manager.get_disable_system_proxy())
+        chk2 = ctk.CTkSwitch(scf, text="强制直连 (绕过局域网代理/终端安全软件)", variable=disable_proxy_var)
+        chk2.pack(anchor="w")
+
         # 频道
         self._sec(sf, "📡 目标频道")
         chs = config_manager.get_channels()
@@ -846,11 +872,12 @@ class App(ctk.CTk):
             if n and d: chs.append({"name":n,"id":d}); cne.delete(0,"end"); cie.delete(0,"end"); _rcl()
         ctk.CTkButton(caf, text="➕", width=36, height=26, command=_ach).pack(side="left")
 
-        # 保存
         def save():
             try:
                 config_manager.save_intervals(float(se.get()), float(te.get()))
                 config_manager.save_channels(chs)
+                config_manager.save_auto_check_monthly_total(auto_chk_var.get())
+                config_manager.save_disable_system_proxy(disable_proxy_var.get())
                 self._refresh_status(); self._refresh_stats()
                 logger.info("⚙️ 已保存！"); dlg.destroy()
             except ValueError: logger.error("❌ 频率须为数字")
