@@ -243,6 +243,18 @@ def save_sweep_stats(total: int, liked: int, skipped: int):
 def get_sweep_stats() -> dict:
     return _get_active_account().get("sweep_stats", {})
 
+def save_monthly_stats(total: int, liked: int):
+    _update_active_account({"monthly_stats": {
+        "monthly_total": total, "monthly_liked": liked,
+        "month": time.strftime("%Y-%m")
+    }})
+
+def get_monthly_stats() -> dict:
+    stats = _get_active_account().get("monthly_stats", {})
+    if stats.get("month") == time.strftime("%Y-%m"):
+        return stats
+    return {}
+
 # ============================
 # 全局设置 (所有账号共享)
 # ============================

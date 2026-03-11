@@ -54,7 +54,12 @@ def _get_channel_articles(session: requests.Session, channel_id: str,
             resp = r.json()
             # print(f"DEBUG resp: {resp}") # For manual debugging if needed
             if not resp.get("success", False) and str(resp.get("errorCode", "")) != "200":
-                logger.error(f"❌ [频道扫描] API 返回异常状态: {resp.get('error')} | Raw: {str(resp)[:100]}")
+                err_code = str(resp.get("errorCode", ""))
+                err_msg = str(resp.get("error", ""))
+                if err_code == "401" or "登录身份信息已过有效期" in err_msg:
+                    raise CookiesExpiredError(f"Session Cookies 已过期 (API报错: {err_msg})")
+                
+                logger.error(f"❌ [频道扫描] API 返回异常状态: {err_msg} | Raw: {str(resp)[:100]}")
                 break
                 
             # data 直接是个列表
@@ -258,4 +263,7 @@ def run_sweep(start_date: str = None, end_date: str = None,
     logger.info(f"💾 [频道扫描] 本地缓存已记录 {liked_cache.get_cache_size()} 篇文章。")
     
     config_manager.save_sweep_stats(total, liked_count, skipped_count)
+    if start_date == datetime.now().strftime("%Y-%m-01"):
+        config_manager.save_monthly_stats(total, liked_count + skipped_count)
+        
     return total, liked_count, skipped_count

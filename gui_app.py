@@ -16,6 +16,43 @@ import channel_sweep
 import liked_cache
 import requests
 import web_panel
+import tkinter as tk
+
+class SimpleTooltip:
+    def __init__(self, widget, text=""):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        if not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 10
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True)
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        
+        # Windows/Linux styling vs Mac
+        try:
+            self.tooltip_window.attributes('-alpha', 0.95)
+            self.tooltip_window.attributes('-topmost', True)
+        except: pass
+            
+        label = tk.Label(self.tooltip_window, text=self.text, justify='left',
+                         background="#2b2b2b", foreground="#e0e0e0", relief='solid', borderwidth=1,
+                         font=("Arial", 11), padx=8, pady=6)
+        label.pack(ipadx=1)
+
+    def leave(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
+    def update_text(self, new_text):
+        self.text = new_text
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -117,6 +154,7 @@ class App(ctk.CTk):
 
         # 5) 工具按钮（扁平风格）
         for text, cmd in [
+            ("🔄  刷新凭据", self._run_token_flow_async),
             ("⚙️  设置", self.open_settings),
             ("📊  导出月报", self.run_export_report_async),
         ]:
@@ -156,7 +194,7 @@ class App(ctk.CTk):
         cg.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         self.card_total  = self._card(cg, 0, "本月文章", "---",  "#60a5fa")
-        self.card_liked  = self._card(cg, 1, "已点赞",   "---",  "#4ade80")
+        self.card_liked  = self._card(cg, 1, "本月点赞", "---",  "#4ade80")
         self.card_last   = self._card(cg, 2, "上次扫描", "---",  "#a78bfa")
         self.card_token  = self._card(cg, 3, "Token",    "检测中", "#fb923c")
 
@@ -228,9 +266,23 @@ class App(ctk.CTk):
     def _card(self, parent, col, title, value, color):
         c = ctk.CTkFrame(parent, corner_radius=10)
         c.grid(row=0, column=col, padx=5, sticky="ew")
-        ctk.CTkLabel(c, text=title, font=ctk.CTkFont(size=11), text_color="gray").pack(pady=(10, 2))
+        
+        # Store tooltip instance on the frame so we can update it later
+        c.tooltip = SimpleTooltip(c, "")
+        
+        # Also bind tooltip explicitly to child widgets so hover works everywhere inside the card
+        lbl_title = ctk.CTkLabel(c, text=title, font=ctk.CTkFont(size=11), text_color="gray")
+        lbl_title.pack(pady=(10, 2))
+        lbl_title.bind("<Enter>", c.tooltip.enter)
+        lbl_title.bind("<Leave>", c.tooltip.leave)
+        
         vl = ctk.CTkLabel(c, text=value, font=ctk.CTkFont(size=22, weight="bold"), text_color=color)
         vl.pack(pady=(0, 10))
+        vl.bind("<Enter>", c.tooltip.enter)
+        vl.bind("<Leave>", c.tooltip.leave)
+        
+        # We return the label (for value updates) but attach the tooltip to it for easy access
+        vl.card_frame = c
         return vl
 
     # ============================================================
@@ -263,6 +315,14 @@ class App(ctk.CTk):
         dlg.geometry("380x320")
         dlg.resizable(False, False)
         dlg.grab_set()
+        
+        def on_closing():
+            if not config_manager.get_all_accounts():
+                self.destroy()
+            else:
+                dlg.destroy()
+        dlg.protocol("WM_DELETE_WINDOW", on_closing)
+
         # 居中显示
         dlg.after(10, lambda: dlg.geometry(
             f"+{self.winfo_x() + self.winfo_width()//2 - 190}"
@@ -289,17 +349,37 @@ class App(ctk.CTk):
             if not u or not p:
                 err_label.configure(text="⚠️ 请输入工号和密码")
                 return
-            config_manager.add_account(u, p)
-            self._refresh_status()
-            self._refresh_stats()
-            logger.info(f"✅ 账号 {u} 已添加，欢迎使用！")
-            dlg.destroy()
-            # 添加账号后立即触发 Token 获取
-            threading.Thread(target=self._initial_checks, daemon=True).start()
+            
+            submit_btn.configure(state="disabled", text="🔄 验证登录中...")
+            err_label.configure(text="正在启动无头浏览器验证账号...", text_color="#fb923c")
+            
+            def worker():
+                import asyncio
+                import get_token
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                data = loop.run_until_complete(get_token.get_new_token(u, p))
+                loop.close()
+                
+                if data:
+                    config_manager.add_account(u, p)
+                    config_manager.save_token(data)
+                    self.after(0, lambda: err_label.configure(text="✅ 验证成功！", text_color="#4ade80"))
+                    logger.info(f"✅ 账号 {u} 已添加，欢迎使用！")
+                    self.after(500, self._refresh_status)
+                    self.after(500, self._refresh_stats)
+                    self.after(500, self._initial_checks)
+                    self.after(1000, dlg.destroy)
+                else:
+                    self.after(0, lambda: submit_btn.configure(state="normal", text="🚀 开始使用"))
+                    self.after(0, lambda: err_label.configure(text="❌ 验证失败：密码错误或网络异常", text_color="#ef4444"))
+                    
+            threading.Thread(target=worker, daemon=True).start()
 
-        ctk.CTkButton(f, text="🚀 开始使用", height=38, width=260,
+        submit_btn = ctk.CTkButton(f, text="🚀 开始使用", height=38, width=260,
                       font=ctk.CTkFont(size=14, weight="bold"),
-                      command=_submit).pack(pady=(10, 0))
+                      command=_submit)
+        submit_btn.pack(pady=(10, 0))
 
     def _initial_checks(self):
         token = config_manager.get_token()
@@ -373,14 +453,28 @@ class App(ctk.CTk):
     #  统计
     # ============================================================
     def _refresh_stats(self):
+        # 1. Hover/Last Scan Stats
         stats = config_manager.get_sweep_stats()
         total = stats.get("total", 0)
         liked = stats.get("liked", 0)
         skipped = stats.get("skipped", 0)
-        missed = total - skipped - liked if total > 0 else 0
+        
+        # 2. Main Card Monthly Stats
+        m_stats = config_manager.get_monthly_stats()
+        month_total = m_stats.get("monthly_total")
+        month_liked = m_stats.get("monthly_liked")
 
-        self.card_total.configure(text=str(total) if total else "---")
-        self.card_liked.configure(text=str(skipped + liked) if total else "---")
+        if month_total is not None:
+            self.card_total.configure(text=str(month_total))
+            self.card_liked.configure(text=str(month_liked))
+        else:
+            self.card_total.configure(text="---")
+            self.card_liked.configure(text="---")
+        
+        # Setting Tooltips (Hover text)
+        scan_total_text = f"上次扫描汇总:\n文章总数: {total}\n成功点赞: {liked}\n无需重复: {skipped}"
+        self.card_total.card_frame.tooltip.update_text(scan_total_text)
+        self.card_liked.card_frame.tooltip.update_text(scan_total_text)
         
         # 上次扫描时间
         last_time = stats.get("last_sweep_time", "")
@@ -552,6 +646,12 @@ class App(ctk.CTk):
             return True
         logger.error("❌ 凭据获取失败。"); return False
 
+    def _run_token_flow_async(self):
+        """Asynchronously triggers the token update to prevent UI freeze."""
+        logger.info("\n🔄 收到手动刷新凭据请求...")
+        self.after(0, lambda: self.card_token.configure(text="刷新中...", text_color="#fb923c"))
+        threading.Thread(target=self._run_token_flow, daemon=True).start()
+
     def _keep_session_alive(self):
         cookies = config_manager.get_ejia_cookies()
         if not cookies: return
@@ -669,17 +769,47 @@ class App(ctk.CTk):
 
         def _add():
             a,b = nue.get().strip(), npe.get().strip()
-            if a and b:
-                config_manager.add_account(a,b)
-                nue.delete(0,"end"); npe.delete(0,"end")
-                self._refresh_status(); _ral()
-                # 同步刷新「当前账号」显示
-                un_now, _ = config_manager.get_credentials()
-                cur_label.configure(
-                    text=f"👤  {un_now}" if un_now else "⚠️  未设置",
-                    text_color=["#333", "#ccc"] if un_now else ["#999", "#666"]
-                )
-        ctk.CTkButton(aaf, text="添加", width=50, height=26, command=_add).pack(side="left")
+            if not a or not b:
+                return
+            add_btn.configure(state="disabled", text="验证中..")
+            
+            def worker():
+                import asyncio
+                import get_token
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                data = loop.run_until_complete(get_token.get_new_token(a, b))
+                loop.close()
+                
+                if data:
+                    idx = config_manager.add_account(a, b)
+                    # Automatically switch to newly added account and save its token
+                    config_manager.switch_account(idx)
+                    config_manager.save_token(data)
+                    
+                    def success():
+                        if add_btn.winfo_exists():
+                            add_btn.configure(state="normal", text="添加")
+                        nue.delete(0, "end"); npe.delete(0, "end")
+                        self._refresh_status()
+                        self._refresh_stats()
+                        _ral()
+                        un_now, _ = config_manager.get_credentials()
+                        cur_label.configure(
+                            text=f"👤  {un_now}" if un_now else "⚠️  未设置",
+                            text_color=["#333", "#ccc"] if un_now else ["#999", "#666"]
+                        )
+                        logger.info(f"✅ 账号 {a} 已成功添加并验证！")
+                        
+                    self.after(0, success)
+                else:
+                    self.after(0, lambda: add_btn.configure(state="normal", text="添加") if add_btn.winfo_exists() else None)
+                    logger.error(f"❌ 账号 {a} 添加失败：登录验证未通过")
+            
+            threading.Thread(target=worker, daemon=True).start()
+
+        add_btn = ctk.CTkButton(aaf, text="添加", width=50, height=26, command=_add)
+        add_btn.pack(side="left")
         _ral()
 
         # 频率

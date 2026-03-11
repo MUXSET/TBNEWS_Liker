@@ -76,8 +76,18 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
                 executable_path=executable_path  # 在打包时使用计算出的路径，开发时为None则使用默认
             )
 
+            import platform
+            system_os = platform.system()
+            if system_os == "Darwin":
+                ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+            elif system_os == "Windows":
+                ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
+            else:
+                ua = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
             context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                user_agent=ua,
+                ignore_https_errors=True
             )
             page = await context.new_page()
 
@@ -95,60 +105,68 @@ async def get_new_token(username: str, password: str) -> Optional[dict]:
                 logger.info("✅ [Token] 登录后页面已加载。")
             except PlaywrightTimeoutError:
                 logger.warning("⚠️ [Token] 登录后页面 load 事件超时，继续尝试...")
-
-            # 额外等待，确保 iframe 有时间渲染
+                
+            # 重大修复: 补回登录后显式等待时间，确保会话/SSO等后台握手初始化完成，否则直接请求子API会被拒绝跳转
             await page.wait_for_timeout(3000)
 
-            # 查找 portal iframe
-            logger.info("🔍 [Token] 正在查找门户 iframe...")
-            try:
-                # 先确认 iframe 存在
-                iframe_el = page.locator("iframe[src*='portal']")
-                await iframe_el.wait_for(state="attached", timeout=30000)
-                logger.info("✅ [Token] 已找到门户 iframe。")
-            except PlaywrightTimeoutError:
-                # 尝试截图以便调试
-                try:
-                    import app_context
-                    screenshot_path = os.path.join(app_context.APP_DATA_PATH, "debug_screenshot.png")
-                    await page.screenshot(path=screenshot_path)
-                    logger.info(f"📸 [Token] 调试截图已保存: {screenshot_path}")
-                except Exception:
-                    pass
-                logger.error("❌ [Token] 找不到门户 iframe (iframe[src*='portal'])，登录可能未成功跳转。")
-                await browser.close()
-                return None
-
-            news_frame = page.frame_locator("iframe[src*='portal']")
-
-            # 在 iframe 中查找新闻资讯卡片
-            logger.info("🔍 [Token] 正在查找新闻资讯卡片...")
-            news_card_locator = news_frame.locator("div.card-component:has(span[title='新闻资讯'])")
-            try:
-                await news_card_locator.wait_for(state="visible", timeout=30000)
-                logger.info("✅ [Token] 已找到新闻资讯卡片。")
-            except PlaywrightTimeoutError:
-                logger.error("❌ [Token] 在门户中找不到新闻资讯卡片。")
-                await browser.close()
-                return None
-
-            # 点击"更多"按钮打开新闻列表页
-            logger.info("🔍 [Token] 正在点击「更多」按钮...")
-            async with context.expect_page() as new_page_info:
-                await news_card_locator.locator(".card-header-button").click()
-
-            news_page = await new_page_info.value
-            await news_page.wait_for_load_state()
-            logger.info("✅ [Token] 新闻列表页已打开。")
-
-            await news_page.locator("(//li[@class='article-item'])[1]").click()
-            logger.info("🔍 [Token] 正在捕获关键Cookie...")
-            await news_page.wait_for_load_state('networkidle', timeout=30000)
-
-            all_cookies = await context.cookies()
+            # 关键修复1：绕过不稳定且可能为空的门户 iframe 和新闻卡片
+            # 直接构造官方接口的新闻列表 URL
+            import urllib.parse
+            import config_manager
             
-            # 使用更简洁的方式查找Token
-            token_value = next((c['value'] for c in all_cookies if c['name'] == 'tbea_art_token'), None)
+            logger.info("🔍 [Token] 正在构造统一的新闻列表入口以绕过首页 UI...")
+            channels = config_manager.get_channels()
+            # 使用用户常扫的第一个频道作保障，若没配置则使用默认的特变资讯频道
+            ch_id = channels[0]['id'] if channels else "XT-2bb8a866-d2a3-47da-bbad-8c63db21e9b6"
+            
+            content_src = f'[{{"title":"","ids":["{ch_id}"]}}]'
+            encoded_src = urllib.parse.quote(content_src)
+            list_url = f"https://ejia.tbea.com/pubacc-front/article/list?contentSource={encoded_src}"
+            
+            try:
+                await page.goto(list_url, timeout=30000)
+                # 等待页面最初始响应
+            except Exception as e:
+                logger.warning(f"⚠️ [Token] 跳转列表时遇到网络波动: {e}")
+
+            logger.info("🔍 [Token] 正在等待列表界面的文章元素...")
+            try:
+                # 不再依赖不可靠的页面 load 或 networkidle 状态，只认具体 DOM 元素
+                await page.wait_for_selector("(//li[@class='article-item'])[1]", state="visible", timeout=30000)
+                logger.info("✅ [Token] 找到可用文章链接。")
+            except PlaywrightTimeoutError:
+                logger.error("❌ [Token] 新闻列表内找不到文章 (可能该频道确实暂无推送)。")
+                await browser.close()
+                return None
+
+            try:
+                # 关键修复3: 强制点击，并允许在同一标签页发生跳转，捕获带 ticket 的 SSO 链接
+                logger.info("🔍 [Token] 点击文章触发 SSO 跳转...")
+                await page.locator("(//li[@class='article-item'])[1]").click(force=True)
+                
+                # 等待跳转到包含 tbeanews 的具体文章页面（携带有 ticket）
+                # Relaxed to "commit" instead of default "load" to prevent timeouts if the heavy news page stalls
+                await page.wait_for_url("**/tbeanews.tbea.com/**", wait_until="commit", timeout=15000)
+                logger.info(f"✅ [Token] SSO 跳转成功!")
+            except Exception as e:
+                logger.warning(f"⚠️ [Token] 跳转过程遇到阻碍 (这可能不影响 Cookie 库获取): {e}")
+                
+            logger.info("🔍 [Token] 正在轮询捕获认证凭据 (tbea_art_token)...")
+            
+            # 关键修复2：使用长轮询代替脆弱的 await networkidle (如果开了新标签页不阻断)
+            token_value = None
+            all_cookies = []
+            for _ in range(30):
+                all_cookies = await context.cookies()
+                token_cookie = next((c for c in all_cookies if c['name'] == 'tbea_art_token'), None)
+                if token_cookie:
+                    logger.info("✅ [Token] 捕获成功！")
+                    token_value = token_cookie['value']
+                    # 等待一下确保所有相关 cookie 落盘
+                    await page.wait_for_timeout(1000)
+                    all_cookies = await context.cookies()
+                    break
+                await page.wait_for_timeout(1000)
             
             # 提取 ejia cookies (供 IM API / checkLogin 使用)
             ejia_cookie_names = [
