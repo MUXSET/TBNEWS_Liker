@@ -58,7 +58,7 @@ jobs:
           mkdir -p "$RELEASE_DIR"
 
           # 复制 .app bundle
-          cp -R "dist/E+新闻点赞工具.app" "$RELEASE_DIR/"
+          cp -R "dist/TBE+ 阅赞助手.app" "$RELEASE_DIR/"
 
           # 复制 Playwright 浏览器
           BROWSER_SRC="$HOME/Library/Caches/ms-playwright"
@@ -82,7 +82,7 @@ jobs:
           New-Item -ItemType Directory -Path $releaseDir -Force
 
           # 复制 PyInstaller 产物
-          Copy-Item -Recurse "dist\E+新闻点赞工具\*" "$releaseDir\"
+          Copy-Item -Recurse "dist\TBE+ 阅赞助手\*" "$releaseDir\"
 
           # 复制 Playwright 浏览器
           $browserSrc = "$env:LOCALAPPDATA\ms-playwright"
