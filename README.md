@@ -1,6 +1,6 @@
-# E+ 新闻全自动点赞工具 v2.0.3
+# E+ 新闻全自动点赞工具 v2.1.0
 
-![版本](https://img.shields.io/badge/version-2.0.3-blue.svg) ![语言](https://img.shields.io/badge/language-Python-green.svg) ![作者](https://img.shields.io/badge/author-MUXSET-orange.svg) ![协议](https://img.shields.io/badge/license-MIT-lightgrey.svg)
+![版本](https://img.shields.io/badge/version-2.1.0-blue.svg) ![语言](https://img.shields.io/badge/language-Python-green.svg) ![作者](https://img.shields.io/badge/author-MUXSET-orange.svg) ![协议](https://img.shields.io/badge/license-MIT-lightgrey.svg)
 
 > **🚀 v2.0.0 系列史诗级更新！**
 > 全面重构的架构升级。全新 GUI 仪表板 + 手机 Web 远程控制 + 智能点赞缓存 + `pubacc_v2` 极速公众号接口全面迁移。从被封杀的旧版短脚鸡进化为真正的极速自动打卡神器。
@@ -121,6 +121,12 @@ python run.py
 ---
 
 ## 📋 版本历史
+
+### v2.1.0 (2026-03-11) — 稳定体验版
+- 🔐 **登录验证器**：新增了添加账号前台强制静默校验，杜绝错误配置填入。
+- 🖥️ **UI数字卡片**：精确切分区分「本月」累计统计，新增悬游上次结果功能。
+- 🌍 **全平台自适应伪装**：底层 Chrome 探测引擎支持按 Mac/Win 分发原生系统专属 UserAgent 绕过防火墙拦截。
+- ⚡ **毫秒级 Token 截获**：不再死守缓慢庞大的图片堆砌瀑布流，侦听 HTTP Commit 即刻抽身。 
 
 ### v2.0.3 (2026-03-10) — 终极修复版
 - 🚀 **全面迁移 `pubacc_v2` 接口**：彻底解决官方关闭聊天历史接口（IM Session 过期 / 返回 0 篇文章）导致的毁灭性打击。
